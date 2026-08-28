@@ -1,0 +1,19 @@
+# secrets — the bot token lives here
+.env
+server/.env
+
+# saved games
+server/state/
+
+# node
+node_modules/
+npm-debug.log*
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# macOS
+.DS_Store

@@ -1,0 +1,21 @@
+{
+  "name": "mackenziewalk-telegram",
+  "version": "0.3.0",
+  "private": true,
+  "type": "module",
+  "description": "Office 4B, 6 Mackenzie Walk - Telegram bot prototype",
+  "main": "bot.mjs",
+  "scripts": {
+    "start": "node bot.mjs",
+    "dev": "node --watch bot.mjs",
+    "render-check": "node dryrun.mjs --png /tmp/mw-render",
+    "dryrun": "node dryrun.mjs"
+  },
+  "dependencies": {
+    "@napi-rs/canvas": "^0.1.60",
+    "grammy": "^1.30.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
