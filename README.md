@@ -2,7 +2,7 @@
 
 A Telegram bot prototype of the intervention game. You carry one qubit; each
 world is a quantum circuit you may enter. Pick a moment, couple your qubit to
-one of theirs, and stake money on that qubit's ⟨Z⟩ moving in your favour.
+one of theirs, and stake the day's budget on that qubit's ⟨Z⟩ moving in your favour.
 
 ```
 mackenziewalk_03/
@@ -43,11 +43,31 @@ passes:
 | `60` | 24 real minutes | current setting — a readout a minute |
 | `1440` | 60 real seconds | fast testing |
 
-Coherence regenerates over about eight game hours and subscriptions bill per
-game day, so an overnight absence restores a meaningful amount and costs a
-sensible number of G. The browser prototype ran on raw wall-clock seconds, which
-only worked for a ten-minute sitting: at those rates, eight hours away billed a
-twenty-unit subscription 9,600G against a 1,000G balance.
+Coherence regenerates over about eight game hours, so an overnight absence
+restores a meaningful amount. The browser prototype ran on raw wall-clock
+seconds, which only worked for a ten-minute sitting: at those rates, eight hours
+away billed 9,600G against a 1,000G balance.
+
+## The day
+
+Money is an allowance, not a bankroll. Each game day opens with a fresh budget
+and closes with the books:
+
+| | |
+|---|---|
+| opening budget | 1,000G, never below 500G, never carried over |
+| a profitable day | tomorrow's budget rises 10% |
+| a losing day | tomorrow's budget falls 5% |
+| breaking even | counts as profitable, if at least one investment was made |
+| a day with no investment | counts as a loss — idling is not free |
+| every 7 game-days | a positive total pays a 100G personal bonus |
+
+The bonus is tracked apart from the budget and cannot be invested. Upgrades cost
+10G per increment, one off, out of the day's budget.
+
+The bell is a hard close: a position still open when the day ends settles where
+it stands. Choosing an exit point past the bell is allowed, but the game says so
+first and offers a way out.
 
 ## Playing
 
@@ -62,7 +82,7 @@ front of it later.
 | `1` `2` `3` | enter one of the three worlds on offer |
 | `i` / `o` | invest at this readout, or observe on |
 | `l` | leave a world, before anything is committed |
-| `b` `s` `l` | buy, sell, leave the marketplace |
+| `b` `l` | buy an upgrade, leave the marketplace |
 
 Once a stake is placed, readouts come due on the game clock — every
 `MW_READOUT_GAME_SECONDS` of game time — while reports post every `MW_POST_MS`
