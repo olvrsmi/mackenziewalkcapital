@@ -10,7 +10,8 @@
     "dev": "node --watch bot.mjs",
     "render-check": "node dryrun.mjs --png /tmp/mw-render",
     "dryrun": "node dryrun.mjs",
-    "copy-check": "node copy-check.mjs"
+    "copy-check": "node copy-check.mjs",
+    "test": "node selftest.mjs"
   },
   "dependencies": {
     "@napi-rs/canvas": "^0.1.60",

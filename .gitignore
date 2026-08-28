@@ -20,3 +20,4 @@ venv/
 
 # bot output
 server/bot.log
+server/.selftest-state/
