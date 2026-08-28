@@ -103,6 +103,34 @@ const ok = (name, cond, detail = '') => {
      Number.isInteger(S.balance), `balance=${S.balance}`)
 }
 
+// --- posting follows the scale, and never repeats itself --------------------
+{
+  ok('posting is derived from game time, not pinned to real time',
+     game.POST_MS === Math.round(realMs(game.POST_GAME_SECONDS)) ||
+     process.env.MW_POST_MS != null,
+     `POST_MS=${game.POST_MS} POST_GAME_SECONDS=${game.POST_GAME_SECONDS}`)
+
+  const S = game.newSession(31)
+  await game.boot(S)
+  await game.handle(S, '1'); await game.handle(S, 'i')
+  await game.handle(S, '250'); await game.handle(S, '1'); await game.handle(S, '6')
+
+  // a post landing early in the first interval has nothing new to say
+  const early = game.step(S, S.run.startedMs + realMs(game.READOUT_GAME_SECONDS) / 3)
+  ok('a post before the first readout stays quiet rather than repeating the entry',
+     early.emissions.length === 0, `${early.emissions.length} emission(s)`)
+
+  // and each post after that carries exactly one reading
+  const counts = []
+  let t = S.run.startedMs + realMs(game.READOUT_GAME_SECONDS) / 3
+  for (let i = 0; i < 4; i++) {
+    t += game.POST_MS
+    counts.push(game.step(S, t).emissions.filter((e) => e.kind === 'text').length)
+  }
+  ok('one reading per post once the circuit is moving',
+     counts.every((c) => c === 1), `counts: ${counts.join(', ')}`)
+}
+
 // --- the bell ----------------------------------------------------------------
 {
   const S = game.newSession(5)

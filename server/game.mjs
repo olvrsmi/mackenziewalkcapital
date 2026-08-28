@@ -9,7 +9,8 @@
 // than receiving images.
 
 import { callModel } from './model.mjs'
-import { gameSeconds, describeGame, describeReal, GAME_DAY_SECONDS } from './time.mjs'
+import { gameSeconds, realMs, describeGame, describeReal, GAME_DAY_SECONDS }
+  from './time.mjs'
 import { t, list, holding, moment } from './copy.mjs'
 
 export const READOUTS = 8
@@ -20,7 +21,18 @@ export const READOUTS = 8
 // therefore cover several readouts, or none.
 export const READOUT_GAME_SECONDS =
   Number(process.env.MW_READOUT_GAME_SECONDS || 3600)   // a game hour apiece
-export const POST_MS = Number(process.env.MW_POST_MS || 3600000)  // real, aligned
+// How often the news goes out, in GAME seconds - so it follows MW_TIME_SCALE
+// like everything else, and a post carries exactly one readout at any speed.
+// Setting it in real milliseconds was a trap: retuning the scale left posting
+// where it was, and posting faster than the circuit moves means repeating a
+// reading the player has already been given.
+export const POST_GAME_SECONDS =
+  Number(process.env.MW_POST_GAME_SECONDS || READOUT_GAME_SECONDS)
+// MW_POST_MS pins the real interval instead, ignoring the scale. An escape
+// hatch, not the normal dial.
+export const POST_MS = process.env.MW_POST_MS
+  ? Number(process.env.MW_POST_MS)
+  : Math.round(realMs(POST_GAME_SECONDS))
 export const STEP_MS = POST_MS                          // kept for the scheduler
 export const START_BUDGET = Number(process.env.MW_START_BUDGET || 1000)
 export const BUDGET_FLOOR = Number(process.env.MW_BUDGET_FLOOR || 500)
@@ -546,8 +558,12 @@ export async function handle (S, raw, emit = null) {
         invest_at: S.readoutIndex, target: q,
         direction: S.direction, coherence: S.coherence,
       })
+      // `reported` starts at the entry point: the position_open message and the
+      // panel below it already show that reading, so the first post has news
+      // only once the circuit has actually moved.
       S.run = { investAt: S.readoutIndex, target: q, stake, exitAt, ...play,
-                revealed: S.readoutIndex, startedMs: Date.now() }
+                revealed: S.readoutIndex, reported: S.readoutIndex,
+                startedMs: Date.now() }
       S.expect = 'running'
       return {
         emissions: [...(preSent ? [] : pre),
@@ -664,7 +680,16 @@ export function step (S, now = Date.now()) {
   const due = dueIndex(S, now)
   const from = r.revealed + 1
   if (due < from) {
-    // nothing has come due; say so rather than going silent
+    // Nothing has come due. Posts are aligned to the wall clock while readouts
+    // run from the moment of investment, so the first post of a round can land
+    // in the gap before t+1 - and repeating a reading the player already has
+    // is worse than a short silence. They were told the reporting interval
+    // when the position opened.
+    if (r.reported === r.revealed) {
+      return { emissions: [], schedule: { kind: 'step', ms: msUntilNextPost(now) },
+               done: false }
+    }
+    r.reported = r.revealed
     return {
       emissions: [(() => {
         const m = (r.z[r.revealed][r.target] - r.z[r.investAt][r.target]) / 2
@@ -684,6 +709,7 @@ export function step (S, now = Date.now()) {
   }
 
   r.revealed = due
+  r.reported = due
   const z0 = r.z[r.investAt][r.target]
   const rows = []
   for (let k = from; k <= due; k++) {

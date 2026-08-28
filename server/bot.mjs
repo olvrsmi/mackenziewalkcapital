@@ -390,7 +390,10 @@ const clock = timeInfo()
 console.log('\n  OFFICE 4B, 6 MACKENZIE WALK - telegram')
 console.log(`  model    ${modelInfo().python}`)
 console.log(`  time     ${clock.scale}x  ` +
-            `(a game day is ${describeReal(clock.gameDaySeconds)})`)
+            `(a game day is ${describeReal(clock.gameDaySeconds)}, ` +
+            `a readout every ${describeReal(game.READOUT_GAME_SECONDS)})`)
+console.log(`  posts    every ${describeReal(game.POST_GAME_SECONDS)}` +
+            `${process.env.MW_POST_MS ? ' (pinned by MW_POST_MS)' : ''}`)
 console.log(`  sessions ${resumed.sessions} saved, ${resumed.resumed} resumed`)
 console.log(`  bot      ${LOCAL ? 'development (MW_LOCAL=1)' : 'deployed'}`)
 if (ALLOW.length) console.log(`  allow    ${ALLOW.length} user id(s)`)
