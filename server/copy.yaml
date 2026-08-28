@@ -42,7 +42,7 @@ scenes:
 
   # {world} {progress} {total} {coherence} {balance} {last_chance}
   investment: |
-    **{world}** — {moment} of {total}
+    **{world}** — {moment} (estimated length: {total})
 
     Your coherence: {coherence}
     Your balance: {balance}{#if last_chance}
@@ -62,17 +62,15 @@ scenes:
   # {profit} {balance} {outcome} {coherence} {was_coherence} {flat} {drained}
   returns: |
     **Returns**
-    {holding} opened at {opened_at}, closed at {closed_at}
+    {holding}: open @ {opened_at}, close @ {closed_at}
     Change {change} · multiplier {multiplier}
 
-    Staked {stake} · returned {returned} · **{outcome} {profit}**
-    Balance {balance}{#if flat}
+    Investment {stake} · return {returned} · **{outcome} {profit}**
 
-    _It never moved. Some of them never do._{/if}
+    Balance {balance}{#if flat} {/if}
 
     Your coherence: {coherence} (was {was_coherence}){#if forced}
-    _Closed early: the day ended._{/if}{#if drained}
-    _{holding} was well worked over by the time you reached it._{/if}
+    _Closed early: EOD._{/if}{#if drained} {/if}
 
   # {world} {target} {exit}
   take_profit: |
