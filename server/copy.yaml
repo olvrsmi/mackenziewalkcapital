@@ -92,6 +92,7 @@ scenes:
   observed_all: You observed the whole circuit and staked nothing. Your qubit is untouched.
   broke: "**You are out of money. The walk ends here.**"
   nothing_to_stake: You have nothing left to stake.
+  turn_failed: Something went wrong at this end and your last move was lost. Send anything to pick up where you were.
 
   # {recharge} {unit_cost} {coherence} {balance} {budget} {bonus} {units}
   # {upgrades} {recovering} {recovery}

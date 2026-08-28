@@ -286,6 +286,7 @@ export function sceneMain (S) {
 
 export function offerWorlds (S, rnd) {
   const pool = S.allWorlds
+  if (!pool) throw new Error('offerWorlds: no world list — call hydrate(S) first')
   const picks = []
   const used = new Set()
   while (picks.length < 3 && used.size < pool.length) {
@@ -354,12 +355,23 @@ export function sceneMarket (S) {
 // rules stay free of them.
 // ---------------------------------------------------------------------------
 
+/**
+ * Fill in the world list, which is deliberately not saved with the session.
+ *
+ * Every path that can reach offerWorlds must call this first, including the
+ * timer path: a session resumed mid-run after a restart has no list, and the
+ * run ending is exactly when it needs one.
+ */
+export async function hydrate (S) {
+  if (S.allWorlds) return S
+  const w = await callModel({ op: 'worlds', readouts: READOUTS })
+  S.allWorlds = w.worlds
+  S.skipped = w.skipped.length
+  return S
+}
+
 export async function boot (S) {
-  if (!S.allWorlds) {
-    const w = await callModel({ op: 'worlds', readouts: READOUTS })
-    S.allWorlds = w.worlds
-    S.skipped = w.skipped.length
-  }
+  await hydrate(S)
   const rnd = mulberry(S.seed + S.rounds * 7919)
   return {
     emissions: [

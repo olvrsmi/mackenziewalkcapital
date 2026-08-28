@@ -193,8 +193,14 @@ const queues = new Map()
 
 function enqueue (chatId, job) {
   const prev = queues.get(chatId) || Promise.resolve()
-  const next = prev.then(job, job).catch((e) =>
-    console.error(`  ${chatId}: turn failed:`, e.message))
+  const next = prev.then(job, job).catch(async (e) => {
+    // A turn that dies silently looks exactly like a frozen game to the player,
+    // and e.message alone gives nothing to debug from - log the stack, then say
+    // so in the chat so they know to send something rather than sit waiting.
+    console.error(`  ${chatId}: turn failed:`, e?.stack || e?.message || e)
+    await bot.api.sendMessage(chatId, t('scenes.turn_failed'),
+                              { parse_mode: 'HTML' }).catch(() => {})
+  })
   queues.set(chatId, next)
   return next
 }
@@ -204,6 +210,7 @@ function fireFor (chatId) {
     const S = await store.load(chatId)
     if (!S) return
     if (sched.kind === 'step') {
+      await game.hydrate(S)        // a resumed run ends by offering worlds
       const r = game.step(S)
       let fatal = false
       try {
@@ -246,12 +253,7 @@ async function handleToken (chatId, text) {
       await deliver(chatId, started.emissions, started.S)
       return
     }
-    if (!S.allWorlds) {                      // re-hydrate after a restart
-      const { callModel } = await import('./model.mjs')
-      const list = await callModel({ op: 'worlds', readouts: game.READOUTS })
-      S.allWorlds = list.worlds
-      S.skipped = list.skipped.length
-    }
+    await game.hydrate(S)          // re-hydrate after a restart
     const r = await game.handle(S, text, async (early) => {
       await deliver(chatId, early, S, { keyboard: false })
       // the work that follows is a model call of about a second
@@ -368,4 +370,17 @@ console.log(`  sessions ${resumed.sessions} saved, ${resumed.resumed} resumed`)
 if (ALLOW.length) console.log(`  allow    ${ALLOW.length} user id(s)`)
 console.log('  polling...\n')
 
-await bot.start({ onStart: (me) => console.log(`  connected as @${me.username}\n`) })
+try {
+  await bot.start({ onStart: (me) => console.log(`  connected as @${me.username}\n`) })
+} catch (e) {
+  // Telegram allows exactly one long poll per token. A second instance does not
+  // share the updates, it evicts the first - so this is nearly always a stray
+  // process still running, and the game goes dead with no message to the player.
+  if (e?.error_code === 409) {
+    console.error('\n  409: another instance is already polling this token.' +
+                  '\n  Stop it first:  pkill -f "node bot.mjs"\n')
+  } else {
+    console.error(`\n  polling stopped: ${e?.description || e?.message || e}\n`)
+  }
+  process.exit(1)
+}

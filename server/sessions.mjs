@@ -47,6 +47,12 @@ function migrate (S) {
     S.week = []
     S.bonus = 0
     delete S.money
+    if (S.run?.stake) {
+      // the stake was taken under the old rules and will be returned under the
+      // new ones. Take it out of today's budget too, or settling pays it twice.
+      S.balance -= S.run.stake
+      S.investedToday = 1
+    }
   }
   if (!S.run) return
   if (S.run.exitAt === undefined) {
