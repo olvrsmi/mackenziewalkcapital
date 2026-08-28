@@ -92,7 +92,7 @@ function keyboardFor (S) {
       // and a tap explains itself rather than doing nothing
       const held = S.world?.name
       for (const w of S.worlds || []) {
-        k.text(w.name === held ? `${w.name} — you are in` : `${w.name} (locked)`,
+        k.text(w.name === held ? `${w.name} (position held)` : `${w.name} (locked)`,
                'locked').row()
       }
       k.text('Marketplace', 'm').text('Status', 'state')

@@ -213,18 +213,15 @@ function gatemapPanel (S) {
 // ---------------------------------------------------------------------------
 
 export function sceneMain (S) {
-  const b = bloch(S)
-  const out = [text(
-    `**Round ${S.rounds + 1}**\n` +
-    `Your qubit — X ${b[0].toFixed(3)} · Y ${b[1].toFixed(3)} · Z ${b[2].toFixed(3)}\n` +
-    `Coherence ${S.coherence.toFixed(3)}` +
-    (S.coherence < 0.25 ? '  (badly worn — it will barely move a target)' : '') +
-    `\nBalance ${money(S.money)}` +
-    (S.regenUnits ? `  ·  subscription ${money(dailyCost(S))}/day` : '') +
-    (S.coherence < 0.999
-      ? `\nFull again in ${describeReal((1 - S.coherence) / regenRate(S))}`
-      : '\nYour qubit is whole.'))]
-  return out
+  const recovery = S.coherence < 0.999
+    ? ` (recovery in ${describeReal((1 - S.coherence) / regenRate(S))})`
+    : ''
+  return [text(
+    `**Round ${S.rounds + 1}**\n\n` +
+    `Your coherence: ${S.coherence.toFixed(3)}${recovery}\n` +
+    `Your balance: ${money(S.money)}` +
+    (S.regenUnits
+      ? `\nSubscription: ${money(dailyCost(S))} a game day` : ''))]
 }
 
 export function offerWorlds (S, rnd) {
@@ -247,10 +244,7 @@ export function offerWorlds (S, rnd) {
     info, name: names[i], readouts: info.readouts,
   }))
   S.expect = 'world'
-  const lines = S.worlds.map((w, i) => `**${i + 1}.** ${w.name}`)
-  return [text('Three worlds are open to you.\n\n' + lines.join('\n') +
-    '\n\n_Tap one to see its prospectus before committing, or type **1**, ' +
-    '**2** or **3**. **m** for the marketplace._')]
+  return [text('Three worlds are open to you.')]
 }
 
 export function sceneInvestment (S) {
@@ -259,17 +253,12 @@ export function sceneInvestment (S) {
   const out = []
   if (k === 0) out.push(gatemapPanel(S))
   out.push(tracesPanel(S, k))
-  const b = bloch(S)
   out.push(text(
-    `**${S.world.name}** — readout ${k} of ${S.world.readouts - 1} ` +
-    `(DAG layer ${S.clean.cuts[k]} of ${S.clean.n_layers})\n` +
-    `Your qubit — X ${b[0].toFixed(3)} · Y ${b[1].toFixed(3)} · ` +
-    `Z ${b[2].toFixed(3)} · coherence ${S.coherence.toFixed(3)}\n` +
-    `Balance ${money(S.money)}` +
+    `**${S.world.name}** — progress ${k}/${S.world.readouts - 1}\n\n` +
+    `Your coherence: ${S.coherence.toFixed(3)}\n` +
+    `Your balance: ${money(S.money)}` +
     (k === S.world.readouts - 2
-      ? '\n\n_This is the last point at which you can still act._' : '') +
-    '\n\nType **i** to invest · **o** to observe' +
-    (k === 0 ? ' · **l** to leave' : '')))
+      ? '\n\n_Last chance to act._' : '')))
   return out
 }
 
@@ -485,8 +474,8 @@ export async function handle (S, raw, emit = null) {
         emissions: [...(preSent ? [] : pre),
           ...(preSent ? [] : [text(`Staking ${money(stake)} on **q${q}**. ` +
                                    'Coupling now.')]),
-          text(`_Position open on **q${q}** until readout ${exitAt}. ` +
-               `Reports arrive on the hour._`),
+          text(`_Position open on **q${q}** until progress ${exitAt}. ` +
+               `Reports every ${postEvery()}._`),
           stepPanel(S)],
         schedule: { kind: 'step', ms: msUntilNextPost() },
       }
@@ -571,6 +560,14 @@ function stepPanel (S) {
   })
 }
 
+/** How often reports land, said plainly - the interval is configurable. */
+export function postEvery () {
+  const s = POST_MS / 1000
+  if (s < 90) return `${Math.round(s)}s`
+  if (s < 5400) return `${Math.round(s / 60)} min`
+  return `${(s / 3600).toFixed(s < 36000 ? 1 : 0)} h`
+}
+
 /** The next real-clock boundary, so every player's report lands together. */
 export function msUntilNextPost (now = Date.now()) {
   return POST_MS - (now % POST_MS) || POST_MS
@@ -597,9 +594,9 @@ export function step (S, now = Date.now()) {
   if (due < from) {
     // nothing has come due; say so rather than going silent
     return {
-      emissions: [text(`_No movement in **${S.world.name}** this hour. ` +
-        `q${r.target} still reads ` +
-        `${fmt(r.z[r.revealed][r.target])}._`)],
+      emissions: [text(`**${S.world.name}** · q${r.target} @ ` +
+        `${fmt(r.z[r.revealed][r.target])} · ` +
+        `${pct((r.z[r.revealed][r.target] - r.z[r.investAt][r.target]) / 2)} →`)],
       schedule: { kind: 'step', ms: msUntilNextPost(now) },
       done: false,
     }
@@ -610,13 +607,12 @@ export function step (S, now = Date.now()) {
   const rows = []
   for (let k = from; k <= due; k++) {
     const z = r.z[k][r.target]
-    rows.push(`readout ${k} — q${r.target} ⟨Z⟩ ${fmt(z)}  ·  ` +
-              `${pct((z - z0) / 2)}`)
+    const prev = r.z[k - 1][r.target]
+    const arrow = z > prev + 1e-6 ? '↗' : (z < prev - 1e-6 ? '↘' : '→')
+    rows.push(`**${S.world.name}** · q${r.target} @ ${fmt(z)} · ` +
+              `${pct((z - z0) / 2)} ${arrow}`)
   }
-  const heading = rows.length === 1
-    ? `**${S.world.name}**`
-    : `**${S.world.name}** — ${rows.length} readouts since the last report`
-  const emissions = [text(`${heading}\n${rows.join('\n')}`), stepPanel(S)]
+  const emissions = [text(rows.join('\n')), stepPanel(S)]
 
   if (due >= r.exitAt) return { emissions: [...emissions, ...settle(S)], done: true }
   return { emissions, schedule: { kind: 'step', ms: msUntilNextPost(now) },
