@@ -12,7 +12,15 @@ import { callModel } from './model.mjs'
 import { gameSeconds, describeGame, describeReal, GAME_DAY_SECONDS } from './time.mjs'
 
 export const READOUTS = 8
-export const STEP_MS = Number(process.env.MW_STEP_MS || 15000)
+
+// Two clocks, deliberately separate. Readouts come due on a GAME-time schedule,
+// so retuning MW_TIME_SCALE retunes the physics with it. Messages go out on a
+// REAL clock boundary, so everyone's news lands at the same moment. One post can
+// therefore cover several readouts, or none.
+export const READOUT_GAME_SECONDS =
+  Number(process.env.MW_READOUT_GAME_SECONDS || 3600)   // a game hour apiece
+export const POST_MS = Number(process.env.MW_POST_MS || 3600000)  // real, aligned
+export const STEP_MS = POST_MS                          // kept for the scheduler
 export const START_MONEY = 1000
 
 // The economy runs in GAME seconds; time.mjs decides how fast those pass.
@@ -45,6 +53,25 @@ const CHATTER = [
 ]
 
 const money = (v) => `${Math.round(v).toLocaleString('en-GB')}G`
+
+const COMPLEXITY = [[25, 'simple'], [60, 'moderate'], [150, 'involved'],
+                    [500, 'dense'], [Infinity, 'labyrinthine']]
+
+/** The technical facts of a circuit, said as a market would say them. */
+export function prospectus (info) {
+  const complexity = COMPLEXITY.find(([lim]) => info.gates < lim)[1]
+  const monopoly = Math.round(100 * info.pairs.length / Math.max(1, info.max_pairs))
+  const volatility = Math.round(100 * (info.volatility ?? 0) / 2)
+  return {
+    opportunities: info.n,
+    complexity,
+    monopoly,
+    volatility,
+    line: `${info.n} investment opportunit${info.n === 1 ? 'y' : 'ies'} · ` +
+          `${complexity} · ${monopoly}% corporate monopolisation · ` +
+          `${volatility}% expected volatility`,
+  }
+}
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v))
 const norm = (v) => Math.hypot(v[0], v[1], v[2])
 
@@ -222,10 +249,7 @@ export function offerWorlds (S, rnd) {
   }))
   S.expect = 'world'
   const lines = S.worlds.map((w, i) =>
-    `**[${i + 1}] ${w.name}**  \`${w.info.id}\`\n` +
-    `      ${w.info.n} qubits · ${w.info.gates} gates · ${w.info.depth} layers · ` +
-    `${w.info.pairs.length}/${w.info.max_pairs} pairs share a gate` +
-    (w.info.connected ? '' : ' · graph is split'))
+    `**[${i + 1}] ${w.name}**\n      ${prospectus(w.info).line}`)
   return [text('Three worlds are open to you.\n\n' + lines.join('\n\n') +
     '\n\nType **1**, **2** or **3** to enter · **m** for the marketplace · ' +
     '**t** to wait')]
@@ -318,11 +342,20 @@ const num = (s) => {
   return Number.isFinite(v) ? v : null
 }
 
-export async function handle (S, raw) {
+/**
+ * Handle one token.
+ *
+ * `emit` is optional and lets a slow handler answer before it is finished:
+ * entering a world spends about a second in the model, which is a long silence
+ * after tapping a button. Anything passed to emit goes out immediately; what is
+ * returned follows when the work is done.
+ */
+export async function handle (S, raw, emit = null) {
   const t = tick(S)
   const pre = tickLines(t).map(text)
+  let preSent = false
+  const out = (...e) => ({ emissions: [...(preSent ? [] : pre), ...e.flat()] })
   const cmd = String(raw || '').trim().toLowerCase()
-  const out = (...e) => ({ emissions: [...pre, ...e.flat()] })
 
   if (!cmd) return out(text('Say something, or type **help**.'))
   if (cmd === 'help' || cmd === '?') {
@@ -349,6 +382,12 @@ export async function handle (S, raw) {
       }
       S.world = S.worlds[i - 1]
       S.expect = 'scouting'
+      // acknowledge the tap before going to the model, not after
+      if (emit) {
+        preSent = true
+        await emit([...pre,
+          text(`You enter **${S.world.name}**. Scouting the ground…`)])
+      }
       const scout = await callModel({
         op: 'scout', circuit: S.world.info.id, readouts: READOUTS,
         direction: S.direction, coherence: S.coherence,
@@ -356,8 +395,10 @@ export async function handle (S, raw) {
       S.clean = scout
       S.world.readouts = scout.cuts.length
       S.readoutIndex = 0
-      return out(text(`You enter **${S.world.name}**. Scouting the ground…`),
-                 sceneInvestment(S))
+      return preSent
+        ? out(sceneInvestment(S))
+        : out(text(`You enter **${S.world.name}**. Scouting the ground…`),
+              sceneInvestment(S))
     }
 
     case 'invest': {
@@ -391,24 +432,49 @@ export async function handle (S, raw) {
       if (q === null || q < 0 || q >= S.world.info.n || !Number.isInteger(q)) {
         return out(text(`Pick a qubit from 0 to ${S.world.info.n - 1}.`))
       }
+      S.pending.target = q
+      S.expect = 'exit'
+      const last = S.world.readouts - 1
+      return out(text(
+        `Coupling to **q${q}**. Where do you take profit?\n\n` +
+        `You are at readout ${S.readoutIndex}. Choose any readout from ` +
+        `${S.readoutIndex + 1} to ${last} — the position closes there and the ` +
+        `round ends. Later is more time for the qubit to move, in either ` +
+        `direction.`))
+    }
+
+    case 'exit': {
+      const exitAt = num(cmd)
+      const last = S.world.readouts - 1
+      if (exitAt === null || !Number.isInteger(exitAt) ||
+          exitAt <= S.readoutIndex || exitAt > last) {
+        return out(text(`Pick a readout from ${S.readoutIndex + 1} to ${last}.`))
+      }
+      const q = S.pending.target
       const stake = S.pending.stake
       S.pending = null
       S.money -= stake
+      if (emit) {
+        preSent = true
+        await emit([...pre, text(`Staking ${money(stake)} on **q${q}**. ` +
+          'Coupling now…')])
+      }
       const play = await callModel({
         op: 'play', circuit: S.world.info.id, readouts: READOUTS,
         invest_at: S.readoutIndex, target: q,
         direction: S.direction, coherence: S.coherence,
       })
-      S.run = { investAt: S.readoutIndex, target: q, stake, ...play,
-                revealed: S.readoutIndex }
+      S.run = { investAt: S.readoutIndex, target: q, stake, exitAt, ...play,
+                revealed: S.readoutIndex, startedMs: Date.now() }
       S.expect = 'running'
       return {
-        emissions: [...pre,
-          text(`Staking ${money(stake)} on **q${q}**. Coupling now.\n\n` +
-               `_The circuit runs on — one readout every ` +
-               `${STEP_MS / 1000} seconds._`),
+        emissions: [...(preSent ? [] : pre),
+          ...(preSent ? [] : [text(`Staking ${money(stake)} on **q${q}**. ` +
+                                   'Coupling now.')]),
+          text(`_Position open on **q${q}** until readout ${exitAt}. ` +
+               `Reports arrive on the hour._`),
           stepPanel(S)],
-        schedule: { kind: 'step', ms: STEP_MS },
+        schedule: { kind: 'step', ms: msUntilNextPost() },
       }
     }
 
@@ -483,7 +549,7 @@ function waitPrompt (S) {
 
 function stepPanel (S) {
   const r = S.run
-  const k = r.revealed
+  const k = Math.min(r.revealed, r.exitAt)
   const z0 = r.z[r.investAt][r.target]
   return tracesPanel(S, k, {
     z: r.z, target: r.target, interventionAt: r.investAt,
@@ -492,32 +558,66 @@ function stepPanel (S) {
   })
 }
 
-/** Advance one readout. Returns {emissions, schedule, done}. */
-export function step (S) {
+/** The next real-clock boundary, so every player's report lands together. */
+export function msUntilNextPost (now = Date.now()) {
+  return POST_MS - (now % POST_MS) || POST_MS
+}
+
+/** How many readouts have come due by now, capped at where the position closes. */
+function dueIndex (S, now = Date.now()) {
+  const elapsed = gameSeconds(now - S.run.startedMs)
+  const advanced = Math.floor(elapsed / READOUT_GAME_SECONDS)
+  return Math.min(S.run.investAt + advanced, S.run.exitAt)
+}
+
+/**
+ * A scheduled post. Releases every readout that has come due since the last one
+ * and reports them together, so a post can cover several - or none, when the
+ * clock has turned but the circuit has not.
+ */
+export function step (S, now = Date.now()) {
   const r = S.run
   if (!r) return { emissions: [], done: true }
-  r.revealed += 1
-  const k = r.revealed
-  const z0 = r.z[r.investAt][r.target]
-  const z = r.z[k][r.target]
-  const mult = (z - z0) / 2
-  const emissions = [
-    { kind: 'text',
-      text: `Readout ${k} — q${r.target} ⟨Z⟩ ${z >= 0 ? '+' : ''}${z.toFixed(3)}` +
-            `  ·  running ${mult >= 0 ? '+' : ''}${(mult * 100).toFixed(1)}%` },
-    stepPanel(S),
-  ]
-  if (k >= S.world.readouts - 1) {
-    return { emissions: [...emissions, ...settle(S)], done: true }
+
+  const due = dueIndex(S, now)
+  const from = r.revealed + 1
+  if (due < from) {
+    // nothing has come due; say so rather than going silent
+    return {
+      emissions: [text(`_No movement in **${S.world.name}** this hour. ` +
+        `q${r.target} still reads ` +
+        `${fmt(r.z[r.revealed][r.target])}._`)],
+      schedule: { kind: 'step', ms: msUntilNextPost(now) },
+      done: false,
+    }
   }
-  return { emissions, schedule: { kind: 'step', ms: STEP_MS }, done: false }
+
+  r.revealed = due
+  const z0 = r.z[r.investAt][r.target]
+  const rows = []
+  for (let k = from; k <= due; k++) {
+    const z = r.z[k][r.target]
+    rows.push(`readout ${k} — q${r.target} ⟨Z⟩ ${fmt(z)}  ·  ` +
+              `${pct((z - z0) / 2)}`)
+  }
+  const heading = rows.length === 1
+    ? `**${S.world.name}**`
+    : `**${S.world.name}** — ${rows.length} readouts since the last report`
+  const emissions = [text(`${heading}\n${rows.join('\n')}`), stepPanel(S)]
+
+  if (due >= r.exitAt) return { emissions: [...emissions, ...settle(S)], done: true }
+  return { emissions, schedule: { kind: 'step', ms: msUntilNextPost(now) },
+           done: false }
 }
+
+const fmt = (v) => `${v >= 0 ? '+' : ''}${v.toFixed(3)}`
+const pct = (m) => `${m >= 0 ? '+' : ''}${(m * 100).toFixed(1)}%`
 
 /** The returns scene, then back to the main scene. */
 function settle (S) {
   const r = S.run
   const z0 = r.z[r.investAt][r.target]
-  const z1 = r.z[r.z.length - 1][r.target]
+  const z1 = r.z[r.exitAt][r.target]
   const dz = z1 - z0
   const mult = dz / 2
   // the stake was taken when the coupling was made; it comes back scaled by
@@ -534,7 +634,7 @@ function settle (S) {
   const out = [{ kind: 'text', text:
     `**Returns**\n` +
     `q${r.target} ⟨Z⟩ when you coupled  ${z0.toFixed(4)}\n` +
-    `q${r.target} ⟨Z⟩ at the end        ${z1.toFixed(4)}\n` +
+    `q${r.target} ⟨Z⟩ at readout ${r.exitAt}      ${z1.toFixed(4)}\n` +
     `Change                    ${dz >= 0 ? '+' : ''}${dz.toFixed(4)}\n` +
     `Multiplier (change / 2)   ${mult >= 0 ? '+' : ''}${mult.toFixed(4)}\n\n` +
     `Staked ${money(r.stake)} · returned ${money(returned)} · ` +

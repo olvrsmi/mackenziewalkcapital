@@ -25,6 +25,25 @@ const timers = new Map()    // chatId -> timeout handle
 
 const fileFor = (chatId) => join(STATE_DIR, `${chatId}.json`)
 
+/**
+ * Bring an older saved game up to date in place.
+ *
+ * Runs used to hold no exit point and no start time, because every position ran
+ * to the end of the circuit on a fixed timer. A player mid-round when that
+ * changed keeps their position and exits where they would have anyway.
+ */
+function migrate (S) {
+  if (!S?.run) return
+  if (S.run.exitAt === undefined) {
+    S.run.exitAt = Math.max(S.run.investAt + 1, (S.world?.readouts ?? 8) - 1)
+  }
+  if (S.run.startedMs === undefined) {
+    // treat the readouts already delivered as though they arrived on schedule
+    S.run.startedMs = Date.now()
+    S.run.investAt = S.run.revealed
+  }
+}
+
 export async function load (chatId) {
   if (live.has(chatId)) return live.get(chatId)
   const path = fileFor(chatId)
@@ -32,6 +51,7 @@ export async function load (chatId) {
     try {
       const d = JSON.parse(await readFile(path, 'utf8'))
       if (d?.version === 3) {
+        migrate(d.session)
         live.set(chatId, d.session)
         return d.session
       }

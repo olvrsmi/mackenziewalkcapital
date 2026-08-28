@@ -222,11 +222,60 @@ def run(circuit_id, readouts, direction, coherence, invest_at=None, target=None)
 # Operations
 # ----------------------------------------------------------------------------
 
+STATS_CACHE = os.path.join(CIRCUIT_DIR, '_stats_cache.json')
+
+
+def circuit_character(circuit_id):
+    """How much this circuit's qubits actually move, with no player in it.
+
+    Worlds are offered before they are scouted, so volatility has to be known in
+    advance. It can be: the apparatus qubit is never coupled during a clean run,
+    so by no-signalling nothing about the player changes a circuit qubit's
+    readout - the trace is a property of the circuit alone. That also means it
+    need only ever be computed once, so it is cached to disk.
+
+    volatility is the mean over qubits of how far <Z> ranges across the
+    readouts, in [0, 2]. A circuit whose qubits sit still has nothing to bet on.
+    """
+    qc, info = load(circuit_id)
+    layers = layers_of(qc)
+    cuts = cuts_for(len(layers), DEFAULT_READOUTS)
+    n = info['n']
+
+    acc = QuantumCircuit(n)
+    rows, prev = [], 0
+    for cut in cuts:
+        for lay in layers[prev:cut]:
+            for op, qargs in lay:
+                acc.append(op, qargs)
+        prev = cut
+        rows.append(z_all(acc, n))
+
+    cols = list(zip(*rows))
+    ranges = [max(c) - min(c) for c in cols]
+    volatility = sum(ranges) / len(ranges) if ranges else 0.0
+    inert = [q for q, r in enumerate(ranges) if r < 1e-6]
+    return {'volatility': round(volatility, 4),
+            'per_qubit_range': [round(r, 4) for r in ranges],
+            'inert_qubits': inert}
+
+
+def load_stats_cache():
+    if os.path.exists(STATS_CACHE):
+        try:
+            with open(STATS_CACHE) as fh:
+                return json.load(fh)
+        except Exception:
+            pass
+    return {}
+
+
 def op_worlds(req):
     """Every circuit small enough to stay responsive, with its structure."""
     max_q = int(req.get('max_qubits', 7))
     max_d = int(req.get('max_depth', 120))
     readouts = int(req.get('readouts', DEFAULT_READOUTS))
+    cache, dirty = load_stats_cache(), False
     out, skipped = [], []
     for f in sorted(glob.glob(os.path.join(CIRCUIT_DIR, '*.qasm'))):
         cid = os.path.basename(f)[:-5]
@@ -242,7 +291,19 @@ def op_worlds(req):
             continue
         info['readouts'] = len(cuts_for(depth, readouts))
         info['connected'] = len(info['components']) == 1
+        info['layers_count'] = depth
+        if cid not in cache:
+            cache[cid] = circuit_character(cid)
+            dirty = True
+        info.update(cache[cid])
         out.append(info)
+
+    if dirty:
+        try:
+            with open(STATS_CACHE, 'w') as fh:
+                json.dump(cache, fh)
+        except Exception:
+            pass          # a cache that cannot be written is not an error
     return {'worlds': out, 'skipped': skipped}
 
 

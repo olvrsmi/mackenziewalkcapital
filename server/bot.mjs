@@ -96,6 +96,25 @@ function keyboardFor (S) {
       }
       return k
     }
+    case 'exit': {
+      const last = (S.world?.readouts || 1) - 1
+      for (let r = S.readoutIndex + 1; r <= last; r++) {
+        k.text(r === last ? `${r} (the end)` : `readout ${r}`, `${r}`)
+        if ((r - S.readoutIndex) % 3 === 0 && r < last) k.row()
+      }
+      return k
+    }
+    case 'running': {
+      // Telegram has no disabled button, so the board stays visible with a lock
+      // and a tap explains itself rather than doing nothing
+      const held = S.world?.name
+      for (const w of S.worlds || []) {
+        k.text(w.name === held ? `${w.name} — you are in` : `${w.name} (locked)`,
+               'locked').row()
+      }
+      k.text('Marketplace', 'm').text('Status', 'state')
+      return k
+    }
     case 'stake': {
       const money = Math.floor(S.money)
       const picks = [...new Set([100, 250, 500, Math.floor(money / 2), money])]
@@ -123,6 +142,31 @@ function keyboardFor (S) {
 // Emission -> Telegram
 // ---------------------------------------------------------------------------
 
+/**
+ * Send one thing, retrying transient failures.
+ *
+ * A network blip must not cost a round: grammY surfaces those as plain errors,
+ * and without a retry the scheduled step throws, the next timer is never armed
+ * and the run dies silently mid-flight. Client errors (blocked, chat gone) are
+ * permanent and rethrown immediately so the caller can stop scheduling.
+ */
+async function sendWithRetry (fn, chatId, attempts = 3) {
+  let wait = 1000
+  for (let i = 1; ; i++) {
+    try {
+      return await fn()
+    } catch (e) {
+      const code = e?.error_code
+      const permanent = code === 400 || code === 403 || code === 404
+      if (permanent || i >= attempts) throw e
+      console.warn(`  ${chatId}: send failed (${e?.description || e?.message}), ` +
+                   `retry ${i}/${attempts - 1} in ${wait}ms`)
+      await new Promise((r) => setTimeout(r, wait))
+      wait *= 3
+    }
+  }
+}
+
 async function deliver (chatId, emissions, S) {
   for (let i = 0; i < emissions.length; i++) {
     const e = emissions[i]
@@ -130,8 +174,8 @@ async function deliver (chatId, emissions, S) {
     const reply_markup = last ? keyboardFor(S) : undefined
 
     if (e.kind === 'text') {
-      await bot.api.sendMessage(chatId, toHtml(e.text),
-        { parse_mode: 'HTML', reply_markup })
+      await sendWithRetry(() => bot.api.sendMessage(chatId, toHtml(e.text),
+        { parse_mode: 'HTML', reply_markup }), chatId)
     } else if (e.kind === 'traces' || e.kind === 'gatemap') {
       await bot.api.sendChatAction(chatId, 'upload_photo').catch(() => {})
       const png = e.kind === 'traces'
@@ -140,8 +184,8 @@ async function deliver (chatId, emissions, S) {
             interventionAt: e.interventionAt, title: e.title })
         : renderGatemap({ n: e.n, layers: e.layers, cuts: e.cuts,
             nLayers: e.nLayers, title: e.title })
-      await bot.api.sendPhoto(chatId, new InputFile(png, 'plot.png'),
-        { reply_markup })
+      await sendWithRetry(() => bot.api.sendPhoto(chatId,
+        new InputFile(png, 'plot.png'), { reply_markup }), chatId)
     }
   }
 }
@@ -167,9 +211,23 @@ function fireFor (chatId) {
     if (!S) return
     if (sched.kind === 'step') {
       const r = game.step(S)
-      await deliver(chatId, r.emissions, S)
+      let fatal = false
+      try {
+        await deliver(chatId, r.emissions, S)
+      } catch (e) {
+        // The state has already advanced, so the readout is lost either way.
+        // Keep the run alive unless the chat itself is gone.
+        fatal = [400, 403, 404].includes(e?.error_code)
+        console.error(`  ${chatId}: readout ${r.emissions.length ? '' : ''}` +
+                      `delivery failed${fatal ? ' permanently' : ''}: ` +
+                      `${e?.description || e?.message}`)
+      }
       await store.save(chatId, S)
-      if (!r.done) store.schedule(chatId, r.schedule, fireFor(chatId))
+      if (fatal) {
+        console.error(`  ${chatId}: abandoning the run — the chat is unreachable`)
+      } else if (!r.done) {
+        store.schedule(chatId, r.schedule, fireFor(chatId))
+      }
     } else if (sched.kind === 'hold') {
       const emissions = game.endHold(S)
       await deliver(chatId, emissions, S)
@@ -204,7 +262,11 @@ async function handleToken (chatId, text) {
       S.allWorlds = list.worlds
       S.skipped = list.skipped.length
     }
-    const r = await game.handle(S, text)
+    const r = await game.handle(S, text, async (early) => {
+      await deliver(chatId, early, S)
+      // the work that follows is a model call of about a second
+      await bot.api.sendChatAction(chatId, 'upload_photo').catch(() => {})
+    })
     await deliver(chatId, r.emissions, S)
     store.schedule(chatId, r.schedule, fireFor(chatId))
     store.ensureTimer(chatId, S, fireFor(chatId))
@@ -250,8 +312,18 @@ bot.command('time', async (ctx) => {
 })
 
 bot.on('callback_query:data', async (ctx) => {
-  await ctx.answerCallbackQuery().catch(() => {})
   const chatId = String(ctx.chat?.id ?? ctx.from.id)
+  if (ctx.callbackQuery.data === 'locked') {
+    const S = await store.load(chatId)
+    const until = S?.run ? ` until readout ${S.run.exitAt}` : ''
+    await ctx.answerCallbackQuery({
+      text: `Your money is committed to ${S?.world?.name || 'a world'}${until}.`,
+      show_alert: false,
+    }).catch(() => {})
+    return
+  }
+  await ctx.answerCallbackQuery().catch(() => {})
+  await bot.api.sendChatAction(chatId, 'typing').catch(() => {})
   // the button carries the same token the player could have typed
   await handleToken(chatId, ctx.callbackQuery.data)
 })
