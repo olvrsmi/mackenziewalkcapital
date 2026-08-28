@@ -2,7 +2,7 @@
 #
 # preflight.sh - prove the stack works, on the box, before trusting it.
 #
-#   ssh root@your.box /opt/mackenziewalk/deploy/preflight.sh
+#   ssh root@your.box /opt/mackenziewalk/app/deploy/preflight.sh
 #
 # Every check here stands for something that has actually gone wrong or is
 # likely to: a Python that qiskit will not import on, a native module with no
@@ -14,11 +14,22 @@
 
 set -uo pipefail
 
-APP=${MW_APP:-/opt/mackenziewalk}
+ROOT=${MW_ROOT:-/opt/mackenziewalk}
+# On the box the clone sits in app/ with data beside it; pointed at a plain
+# checkout it uses that directly, which is how this gets tested off the box.
+if [ -n "${MW_APP:-}" ]; then APP=$MW_APP
+elif [ -d "$ROOT/app" ]; then APP=$ROOT/app
+else APP=$ROOT; fi
 USER_NAME=${MW_USER:-mw}
 SERVER="$APP/server"
 MODEL="$APP/model"
 VENV="$MODEL/.venv/bin/python3"
+ENV_FILE="$SERVER/.env"
+
+# Read the paths the service will actually use rather than assuming them.
+from_env () { [ -f "$ENV_FILE" ] && sed -n "s/^$1=//p" "$ENV_FILE" | tail -1; }
+STATE=$(from_env MW_STATE_DIR); STATE=${STATE:-$SERVER/state}
+LOGF=$(from_env MW_LOG_FILE);   LOGF=${LOGF:-$SERVER/events.jsonl}
 
 # `timeout` is GNU and not on every host (macOS has none by default), but its
 # absence must not read as a broken model.
@@ -33,7 +44,7 @@ bad ()  { printf '  \033[31mFAIL\033[0m  %s\n' "$*"; fail=$((fail+1)); }
 skipf () { printf '  --    %s\n' "$*"; skip=$((skip+1)); }
 
 printf '\n  %s\n' "$APP"
-[ "$APP" = /opt/mackenziewalk ] || printf '  %s\n' \
+[ "$APP" = /opt/mackenziewalk/app ] || printf '  %s\n' \
   "(not the deploy path - the .env checks below describe a box, not a laptop)"
 printf '\n'
 
@@ -92,10 +103,12 @@ else
 fi
 
 # --- configuration ----------------------------------------------------------
-ENV_FILE="$SERVER/.env"
 if [ -f "$ENV_FILE" ]; then
   perms=$(stat -c '%a' "$ENV_FILE" 2>/dev/null || stat -f '%Lp' "$ENV_FILE" 2>/dev/null)
-  [ "$perms" = "600" ] && ok ".env is 600" || bad ".env is $perms, should be 600"
+  case "$perms" in
+    600|640) ok ".env is $perms" ;;
+    *) bad ".env is $perms - should be 640 on the box, 600 on a laptop" ;;
+  esac
   # presence only - the value is never printed or logged
   if grep -qE '^TELEGRAM_BOT_TOKEN=.+' "$ENV_FILE"; then ok "a deployed token is set"
   else bad "TELEGRAM_BOT_TOKEN is empty in $ENV_FILE"; fi
@@ -111,13 +124,21 @@ fi
 
 # --- writable state ---------------------------------------------------------
 if id "$USER_NAME" >/dev/null 2>&1 && command -v runuser >/dev/null && [ "$(id -u)" -eq 0 ]; then
-  if runuser -u "$USER_NAME" -- test -w "$SERVER/state" 2>/dev/null; then
-    ok "$USER_NAME can write saved games"
+  for d in "$STATE" "$(dirname "$LOGF")"; do
+    if runuser -u "$USER_NAME" -- test -w "$d" 2>/dev/null; then
+      ok "$USER_NAME can write $d"
+    else
+      bad "$USER_NAME cannot write $d - chown $USER_NAME:$USER_NAME $d"
+    fi
+  done
+  # the flip side: the service must NOT be able to rewrite its own code
+  if runuser -u "$USER_NAME" -- test -w "$SERVER/bot.mjs" 2>/dev/null; then
+    bad "$USER_NAME can write the code it runs - chown -R root:root $APP"
   else
-    bad "$USER_NAME cannot write $SERVER/state - chown -R $USER_NAME:$USER_NAME $APP"
+    ok "the code is read-only to $USER_NAME"
   fi
 else
-  [ -w "$SERVER/state" ] && ok "state directory is writable" \
+  [ -w "$STATE" ] && ok "state directory is writable" \
     || skipf "state directory ownership (not root, or no such user)"
 fi
 

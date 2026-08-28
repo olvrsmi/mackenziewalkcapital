@@ -1,33 +1,32 @@
 #!/usr/bin/env bash
 #
-# deploy.sh - push this working copy to the box and restart. Run from a laptop.
+# deploy.sh - move the box to a commit and restart. Run from a laptop.
 #
-#   ./deploy/deploy.sh root@your.box --setup    first time
-#   ./deploy/deploy.sh root@your.box            every time after
-#   MW_HOST=root@your.box ./deploy/deploy.sh    if you tire of typing it
+#   ./deploy/deploy.sh root@your.box              current branch, latest
+#   ./deploy/deploy.sh root@your.box --ref v0.2    a tag or commit
+#   MW_HOST=root@your.box ./deploy/deploy.sh       if you tire of typing it
 #
-# The repository is private, so this ships the working copy over ssh rather
-# than cloning - no deploy key on the box, and no need to push before trying
-# something. The cost is that the box can drift from git, so it says so when
-# what you are sending is not what is committed.
+# The box pulls from GitHub rather than being pushed to, so what runs there is
+# always a commit you can name. The cost is that unpushed work cannot be
+# deployed - which is checked here rather than discovered afterwards.
 #
-#   --setup      run setup.sh on the box first (idempotent)
-#   --no-deps    skip the venv and npm install, when only code changed
-#   --dry-run    show what rsync would send, change nothing
+#   --ref X      deploy a tag, branch or commit instead of the current branch
+#   --no-deps    skip the installs, when only code changed
+#   --dry-run    say what would happen, change nothing
 
 set -euo pipefail
 
-APP=/opt/mackenziewalk
-HOST=""
-SETUP=0; DEPS=1; DRY=0
+ROOT_DIR=/opt/mackenziewalk
+APP="$ROOT_DIR/app"
+HOST=""; REF=""; DEPS=1; DRY=0
 
-for a in "$@"; do
-  case "$a" in
-    --setup) SETUP=1 ;;
-    --no-deps) DEPS=0 ;;
-    --dry-run|-n) DRY=1 ;;
-    -*) echo "unknown option $a" >&2; exit 2 ;;
-    *) HOST="$a" ;;
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --ref) REF=${2:-}; shift 2 ;;
+    --no-deps) DEPS=0; shift ;;
+    --dry-run|-n) DRY=1; shift ;;
+    -*) echo "unknown option $1" >&2; exit 2 ;;
+    *) HOST="$1"; shift ;;
   esac
 done
 HOST=${HOST:-${MW_HOST:-}}
@@ -37,78 +36,77 @@ note () { printf '    %s\n' "$*"; }
 die () { printf '\n  ERROR: %s\n\n' "$*" >&2; exit 1; }
 
 [ -n "$HOST" ] || die "no host. ./deploy/deploy.sh root@your.box"
-command -v rsync >/dev/null || die "rsync is not installed here"
 
-ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
-cd "$ROOT"
+cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
+git rev-parse --git-dir >/dev/null 2>&1 || die "not a git checkout"
 
-# --- what is actually being sent -------------------------------------------
-if git rev-parse --git-dir >/dev/null 2>&1; then
-  head=$(git log --oneline -1 2>/dev/null || echo 'no commits')
-  dirty=$(git status --porcelain 2>/dev/null | wc -l | tr -d ' ')
-  say "Sending"
-  note "$head"
-  [ "$dirty" -gt 0 ] && note "with $dirty uncommitted change(s) - the box will not match git"
+BRANCH=$(git rev-parse --abbrev-ref HEAD)
+REF=${REF:-$BRANCH}
+
+# --- is what you mean to deploy actually on GitHub? -------------------------
+say "Checking"
+dirty=$(git status --porcelain | wc -l | tr -d ' ')
+[ "$dirty" -gt 0 ] && note "$dirty uncommitted change(s) - these will NOT be deployed"
+
+if git rev-parse --verify --quiet "$REF" >/dev/null; then
+  local_sha=$(git rev-parse "$REF")
+  git fetch --quiet origin 2>/dev/null || note "could not reach origin to compare"
+  if git rev-parse --verify --quiet "origin/$REF" >/dev/null; then
+    remote_sha=$(git rev-parse "origin/$REF")
+    if [ "$local_sha" != "$remote_sha" ]; then
+      ahead=$(git rev-list --count "origin/$REF..$REF" 2>/dev/null || echo '?')
+      die "origin/$REF is not what you have locally ($ahead commit(s) ahead).
+         The box pulls from GitHub, so push first:  git push origin $REF"
+    fi
+  fi
+  note "$REF is $(git log --oneline -1 "$REF")"
+else
+  note "$REF is not a local ref - trusting the box to find it"
 fi
 
-# state, .env and logs live on the box and must survive a deploy. They are
-# excluded rather than deleted: rsync --delete leaves excluded paths alone.
-RSYNC_ARGS=(-az --delete --human-readable
-  --exclude '.git/'
-  --exclude '.env'
-  --exclude 'node_modules/'
-  --exclude '.venv/'
-  --exclude '__pycache__/'
-  --exclude '*.pyc'
-  --exclude 'state/'
-  --exclude 'backups/'
-  --exclude 'events.jsonl*'
-  --exclude 'bot.log'
-  --exclude '.selftest-state/'
-  --exclude '.DS_Store')
-[ "$DRY" -eq 1 ] && RSYNC_ARGS+=(--dry-run --itemize-changes)
-
-say "Copying to $HOST:$APP"
-# rsync has to exist at both ends, and this runs before setup.sh has had a
-# chance to install anything. Most images have it; the ones that do not would
-# otherwise fail here with a confusing "command not found" from the far side.
-ssh "$HOST" "command -v rsync >/dev/null || {
-    echo '    installing rsync on the box'
-    DEBIAN_FRONTEND=noninteractive apt-get update -qq &&
-    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq rsync; }" \
-  || die "could not get rsync onto $HOST"
-ssh "$HOST" "mkdir -p $APP"
-rsync "${RSYNC_ARGS[@]}" ./ "$HOST:$APP/"
-
 if [ "$DRY" -eq 1 ]; then
-  say "Dry run - nothing changed"
+  say "Dry run"
+  note "would move $HOST to $REF, ${DEPS:+re}install dependencies, and restart"
   exit 0
 fi
 
-if [ "$SETUP" -eq 1 ]; then
-  say "Provisioning"
-  ssh "$HOST" "chmod +x $APP/deploy/*.sh && $APP/deploy/setup.sh"
-fi
+# --- move the box -----------------------------------------------------------
+say "Updating $HOST"
+ssh "$HOST" "set -e
+  cd $APP
+  git fetch --quiet --tags origin
+  git reset --quiet --hard '$REF' 2>/dev/null || git reset --quiet --hard 'origin/$REF'
+  git log --oneline -1" | sed 's/^/    /'
 
 if [ "$DEPS" -eq 1 ]; then
   say "Dependencies"
-  # Both installs are idempotent and quiet when there is nothing to do. The
-  # python one reaches GitHub: pairwise-tomography installs from a git URL.
+  # Both are quiet when there is nothing to do. The python one reaches GitHub:
+  # pairwise-tomography installs from a git URL.
   ssh "$HOST" "set -e
     cd $APP
-    [ -d model/.venv ] || python3 -m venv model/.venv
-    model/.venv/bin/pip install -q --upgrade pip
     model/.venv/bin/pip install -q -r model/requirements.txt
+    model/.venv/bin/python3 -m compileall -q model >/dev/null 2>&1 || true
     cd server && npm ci --omit=dev --silent
-    chown -R mw:mw $APP"
+    chown -R root:root $APP" || die "dependency install failed"
   note "ok"
 fi
+
+# --- does the model still answer? -------------------------------------------
+# Cheap, and it catches a broken install before players do rather than after.
+say "Smoke test"
+n=$(ssh "$HOST" "cd $APP/model && echo '{\"op\":\"worlds\",\"readouts\":8}' \
+      | .venv/bin/python3 engine.py 2>/dev/null | head -c 200000" \
+    | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{
+        try{const j=JSON.parse(s);process.stdout.write(String(j.ok?j.worlds.length:0))}
+        catch{process.stdout.write("0")}})')
+[ "${n:-0}" -gt 0 ] || die "the model did not answer on the box. ssh $HOST $APP/deploy/preflight.sh"
+note "$n circuits playable"
 
 say "Restarting"
 # One poller per token: stop before start, never overlap.
 ssh "$HOST" "systemctl restart mackenziewalk && sleep 6 && systemctl is-active mackenziewalk" \
-  || die "the service did not come up. ssh $HOST journalctl -u mackenziewalk -n 40"
+  >/dev/null || die "the service did not come up. ssh $HOST journalctl -u mackenziewalk -n 40"
 
 say "Status"
-ssh "$HOST" "systemctl status mackenziewalk --no-pager -n 12 | tail -n 16"
+ssh "$HOST" "systemctl status mackenziewalk --no-pager -n 10 | tail -n 14"
 printf '\n'

@@ -11,7 +11,7 @@ StartLimitBurst=5
 Type=simple
 User=mw
 Group=mw
-WorkingDirectory=/opt/mackenziewalk/server
+WorkingDirectory=/opt/mackenziewalk/app/server
 ExecStart=/usr/bin/node bot.mjs
 
 # The canvas library panics in Rust on bad input, which aborts the process
@@ -29,9 +29,14 @@ StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=mackenziewalk
 
+# The clone is root-owned and the game runs as mw, so it cannot rewrite the
+# code it is running. Saved games and the event log are the only writable
+# paths; bytecode is compiled at deploy time so nothing needs to write there.
+Environment=PYTHONDONTWRITEBYTECODE=1
 NoNewPrivileges=true
 PrivateTmp=true
-ProtectSystem=full
+ProtectSystem=strict
+ReadWritePaths=/opt/mackenziewalk/state /opt/mackenziewalk/logs
 ProtectHome=true
 ProtectKernelTunables=true
 ProtectControlGroups=true

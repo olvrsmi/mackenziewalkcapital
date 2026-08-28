@@ -7,9 +7,9 @@
 
 set -euo pipefail
 
-APP=${MW_APP:-/opt/mackenziewalk}
-STATE="$APP/server/state"
-DEST="$APP/backups"
+ROOT=${MW_ROOT:-/opt/mackenziewalk}
+STATE="$ROOT/state"
+DEST="$ROOT/backups"
 KEEP=${MW_BACKUP_KEEP:-14}
 
 [ -d "$STATE" ] || { echo "no state directory at $STATE"; exit 0; }
@@ -17,7 +17,7 @@ mkdir -p "$DEST"
 
 stamp=$(date -u +%Y%m%d-%H%M%S)
 out="$DEST/state-$stamp.tar.gz"
-tar czf "$out" -C "$APP/server" state
+tar czf "$out" -C "$ROOT" state
 echo "$(du -h "$out" | cut -f1)  $out"
 
 # keep the most recent KEEP, drop the rest
