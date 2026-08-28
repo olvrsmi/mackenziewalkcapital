@@ -24,9 +24,10 @@ scenes:
   round: |
     **Round {round}**
 
+    Day {day} · {day_left} left
     Your coherence: {coherence}{#if recovering} (recovery in {recovery}){/if}
-    Your balance: {balance}{#if subscribed}
-    Subscription: {daily} a game day{/if}
+    Today's budget: {budget} · balance {balance} ({pl})
+    {#if has_bonus}Personal pot: {bonus}{/if}
 
   # no values
   offer: Three worlds are open to you.
@@ -49,7 +50,7 @@ scenes:
     _Last chance to act._{/if}
 
   # {world} {holding} {value} {change} {arrow} {pl}
-  readout: "**{world}** · {holding} @ {value} · {change} {arrow} P/L {pl}"
+  readout: "**{world}** · {holding} @ {value} · {change} {arrow} · P/L {pl}"
 
   # {stake} {holding}
   staking: "{stake} on **{holding}**. Making investment."
@@ -69,7 +70,8 @@ scenes:
 
     _It never moved. Some of them never do._{/if}
 
-    Your coherence: {coherence} (was {was_coherence}){#if drained}
+    Your coherence: {coherence} (was {was_coherence}){#if forced}
+    _Closed early: the day ended._{/if}{#if drained}
     _{holding} was well worked over by the time you reached it._{/if}
 
   # {world} {target} {exit}
@@ -84,30 +86,48 @@ scenes:
   ask_target: "Couple to which holding? (0 – {last})"
   # {first} {last}
   ask_exit: "Pick a point from {first} to {last}."
-  ask_units: How many units?
-  # {units}
-  ask_units_sell: "How many units? (up to {units})"
+  ask_units: How many upgrades?
 
   left: You leave before anything is committed.
   observed_all: You observed the whole circuit and staked nothing. Your qubit is untouched.
   broke: "**You are out of money. The walk ends here.**"
   nothing_to_stake: You have nothing left to stake.
 
-  # {recharge} {unit_cost} {coherence} {balance} {units} {daily} {recovery}
-  # {recovering} {runway} {has_runway}
+  # {recharge} {unit_cost} {coherence} {balance} {budget} {bonus} {units}
+  # {upgrades} {recovering} {recovery}
   marketplace: |
-    **The marketplace**
-    A spent qubit comes back on its own in {recharge}. Units make that faster: each adds a quarter again for {unit_cost} a game day, billed continuously.
+    **The workshop**
+    A spent investment-bit cleans up on its own in {recharge}. Each upgrade buys a quarter again, once, for {unit_cost} out of today's budget.
 
-    Coherence {coherence} · balance {balance}
-    Units subscribed {units} · {daily} a game day{#if recovering}
-    Full again in {recovery}{/if}{#if has_runway}
-    Runway {runway} game days{/if}
+    Coherence {coherence} · today's balance {balance}
+    Upgrades owned {upgrades}{#if recovering}
+    Clean again in {recovery}{/if}
 
-  # {rate} {daily}
-  subscribed: "Subscribed. Your rate is now {rate} at {daily} a game day."
-  unsubscribed: "Cancelled. Your rate is now {rate} at {daily} a game day."
-  nothing_to_sell: You have nothing to sell.
+  # {bought} {spent} {upgrades} {recovery}
+  upgraded: "{bought} bought for {spent}. {upgrades} owned — clean-up now takes {recovery}."
+  # {cost} {balance}
+  cannot_afford: "An upgrade is {cost} and you have {balance}."
+
+  # {day} {pl} {good} {traded} {idle} {was_budget} {budget} {change} {floored} {floor}
+  day_end: |
+    **The bell — day {day} closes**
+
+    {#if idle}You made no investments today.{:else}Day's result: {pl}{/if}
+    Budget {was_budget} → **{budget}** ({change})
+    {#if floored}_Your budget cannot fall below {floor}._{/if}
+
+  # {total} {paid} {bonus} {pot}
+  week_end: |
+    **The week closes.** Seven days came to {total}.
+    {#if paid}A personal bonus of {bonus} has been paid. Your pot stands at {pot}. It cannot be invested.{:else}No bonus this week.{/if}
+
+  # {exit} {remaining} {reachable}
+  exit_past_bell: |
+    **{exit} falls after the bell.**
+
+    The day ends in {remaining} and every position closes where it stands, so you would be sold out early — {reachable} is the last point you can reach in full.
+
+    Hold anyway, or choose again?
 
   # {worlds} {skipped} {recharge}
   welcome: |
@@ -129,7 +149,6 @@ scenes:
 
   # {elapsed} {gained}
   time_passed: "{elapsed} passed: {gained}"
-  lapsed: You could not cover the subscription. The plan has lapsed.
 
 # One of these is chosen at random when a player writes during their own run.
 chatter:
@@ -157,7 +176,8 @@ buttons:
   marketplace: Marketplace
   status: Status
   buy: Buy
-  sell: Sell
+  hold_anyway: Hold anyway
+  choose_again: Choose again
   all_stake: "All {amount}"
   stake: "{amount}"
   # {index} {world} {opportunities}
@@ -177,7 +197,7 @@ vocabulary:
   # How one holding inside a world is named, and how a moment in its progress
   # is named. {index} counts from zero. Everything that shows either - messages,
   # buttons, and the labels drawn onto the plots - uses these.
-  holding: "e_{index}"
+  holding: "E{index}"
   moment: "t{index}"
 
   complexity:

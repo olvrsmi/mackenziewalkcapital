@@ -17,3 +17,6 @@ venv/
 
 # macOS
 .DS_Store
+
+# bot output
+server/bot.log

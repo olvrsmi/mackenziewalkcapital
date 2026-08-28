@@ -33,7 +33,22 @@ const fileFor = (chatId) => join(STATE_DIR, `${chatId}.json`)
  * changed keeps their position and exits where they would have anyway.
  */
 function migrate (S) {
-  if (!S?.run) return
+  if (!S) return
+  if (S.budget === undefined) {
+    // one persistent bankroll became a daily allowance. There is no honest way
+    // to carry a bankroll across: keeping the old figure as the balance would
+    // start them mid-day already down against a full budget, and bill the -5%
+    // for a loss they took under the old rules. They start today level instead.
+    S.budget = game.START_BUDGET
+    S.balance = game.START_BUDGET
+    S.dayIndex = 0
+    S.dayStartedMs = Date.now()
+    S.investedToday = 0
+    S.week = []
+    S.bonus = 0
+    delete S.money
+  }
+  if (!S.run) return
   if (S.run.exitAt === undefined) {
     S.run.exitAt = Math.max(S.run.investAt + 1, (S.world?.readouts ?? 8) - 1)
   }
@@ -108,9 +123,6 @@ export function ensureTimer (chatId, S, fire) {
   if (timers.has(chatId)) return
   if (S.expect === 'running' && S.run) {
     schedule(chatId, { kind: 'step', ms: game.STEP_MS }, fire)
-  } else if (S.expect === 'holding') {
-    schedule(chatId, { kind: 'hold',
-      ms: Math.max(500, (S.holdUntil || 0) - Date.now()) }, fire)
   }
 }
 
@@ -121,7 +133,7 @@ export async function resumeAll (fireFor) {
   for (const chatId of ids) {
     const S = await load(chatId)
     if (!S) continue
-    if (S.expect === 'running' || S.expect === 'holding') {
+    if (S.expect === 'running') {
       ensureTimer(chatId, S, fireFor(chatId))
       resumed += 1
     }

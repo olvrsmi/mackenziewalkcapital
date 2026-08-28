@@ -106,7 +106,7 @@ function keyboardFor (S) {
       return k
     }
     case 'stake': {
-      const money = Math.floor(S.money)
+      const money = Math.floor(S.balance)
       const picks = [...new Set([100, 250, 500, Math.floor(money / 2), money])]
         .filter((v) => v >= 1 && v <= money)
         .sort((a, b) => a - b)
@@ -118,12 +118,12 @@ function keyboardFor (S) {
       return k
     }
     case 'market':
-      return k.text(t('buttons.buy'), 'b').text(t('buttons.sell'), 's')
-        .text(t('buttons.leave'), 'l')
+      return k.text(t('buttons.buy'), 'b').text(t('buttons.leave'), 'l')
     case 'buy':
-      return k.text('5', '5').text('10', '10').text('25', '25').text('50', '50')
-    case 'sell':
-      return k.text('5', '5').text('10', '10').text('All', `${S.regenUnits}`)
+      return k.text('1', '1').text('2', '2').text('5', '5').text('10', '10')
+    case 'confirm_exit':
+      return k.text(t('buttons.hold_anyway'), 'y')
+        .text(t('buttons.choose_again'), 'n')
     default:
       return null
   }
@@ -222,10 +222,6 @@ function fireFor (chatId) {
       } else if (!r.done) {
         store.schedule(chatId, r.schedule, fireFor(chatId))
       }
-    } else if (sched.kind === 'hold') {
-      const emissions = game.endHold(S)
-      await deliver(chatId, emissions, S)
-      await store.save(chatId, S)
     }
   })
 }

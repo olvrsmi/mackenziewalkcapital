@@ -22,7 +22,13 @@ export const READOUT_GAME_SECONDS =
   Number(process.env.MW_READOUT_GAME_SECONDS || 3600)   // a game hour apiece
 export const POST_MS = Number(process.env.MW_POST_MS || 3600000)  // real, aligned
 export const STEP_MS = POST_MS                          // kept for the scheduler
-export const START_MONEY = 1000
+export const START_BUDGET = Number(process.env.MW_START_BUDGET || 1000)
+export const BUDGET_FLOOR = Number(process.env.MW_BUDGET_FLOOR || 500)
+export const BUDGET_UP = 1.10          // after a profitable day
+export const BUDGET_DOWN = 0.95        // after a loss, or a day spent idle
+export const WEEK_DAYS = 7
+export const WEEK_BONUS = Number(process.env.MW_WEEK_BONUS || 100)
+export const UPGRADE_COST = Number(process.env.MW_UPGRADE_COST || 10)
 
 // The economy runs in GAME seconds; time.mjs decides how fast those pass.
 // Free regeneration restores a spent qubit over about eight game hours, and a
@@ -31,7 +37,6 @@ export const FULL_RECHARGE_GAME_SECONDS =
   Number(process.env.MW_RECHARGE_GAME_SECONDS || 8 * 3600)
 export const BASE_REGEN = 1 / FULL_RECHARGE_GAME_SECONDS   // per game second
 export const REGEN_UNIT = BASE_REGEN * 0.25                // per game second
-export const UNIT_COST_PER_DAY = 1                         // G per game day
 export const DAY_SECONDS = GAME_DAY_SECONDS                // game seconds
 
 // `|| 0` collapses negative zero, which would otherwise print as "-0G"
@@ -73,12 +78,20 @@ export function newSession (seed = Date.now()) {
     seed,
     direction: v.map((x) => x / r),
     coherence: 1,
-    money: START_MONEY,
-    history: [START_MONEY],
+    // The budget is the day's allowance and the number that compounds; the
+    // balance is what is left of it right now. Anything unspent is lost when the
+    // day turns, so there is no saving across days.
+    budget: START_BUDGET,
+    balance: START_BUDGET,
+    dayIndex: 0,
+    dayStartedMs: Date.now(),
+    investedToday: 0,
+    week: [],                 // the last seven days' results
+    bonus: 0,                 // personal, cannot be staked
+    history: [START_BUDGET],
     rounds: 0,
     regenUnits: 0,
     clockMs: Date.now(),
-    billed: 0,
     expect: 'boot',
     worlds: null,          // the three on offer
     world: null,           // the one entered
@@ -97,9 +110,8 @@ export function regenRate (S) {
   return BASE_REGEN + S.regenUnits * REGEN_UNIT
 }
 
-export function dailyCost (S) {
-  return S.regenUnits * UNIT_COST_PER_DAY
-}
+/** What one more increment of regeneration costs, bought outright. */
+export const upgradeCost = () => UPGRADE_COST
 
 // ---------------------------------------------------------------------------
 // The clock: coherence returns, the subscription bills. Both accrue against
@@ -112,31 +124,74 @@ export function tick (S, nowMs = Date.now()) {
 
   const before = S.coherence
   S.coherence = Math.min(1, S.coherence + regenRate(S) * elapsed)
-  const gained = S.coherence - before
+  return { elapsed, gained: S.coherence - before }
+}
 
-  let cost = dailyCost(S) * (elapsed / DAY_SECONDS)
-  cost = Math.min(cost, S.money)          // never bills into debt
-  S.money -= cost
-  S.billed += cost
+/** Would a position closing at this point run past the end of the day? */
+export function crossesDayEnd (S, exitAt, nowMs = Date.now()) {
+  const steps = exitAt - S.readoutIndex
+  return steps * READOUT_GAME_SECONDS > dayRemaining(S, nowMs)
+}
 
-  let lapsed = false
-  if (S.regenUnits > 0 && S.money < dailyCost(S) * 0.05) {
-    S.regenUnits = 0                      // cannot cover the next charge
-    lapsed = true
+/** The furthest exit point still reachable before the day ends. */
+export function lastReachable (S, nowMs = Date.now()) {
+  const steps = Math.floor(dayRemaining(S, nowMs) / READOUT_GAME_SECONDS)
+  return Math.max(S.readoutIndex + 1,
+    Math.min(S.readoutIndex + steps, S.world.readouts - 1))
+}
+
+/** Game seconds left of the current day. */
+export function dayRemaining (S, nowMs = Date.now()) {
+  return Math.max(0, GAME_DAY_SECONDS - gameSeconds(nowMs - S.dayStartedMs))
+}
+
+export const dayIsOver = (S, nowMs = Date.now()) => dayRemaining(S, nowMs) <= 0
+
+/**
+ * Close the day and set tomorrow's allowance.
+ *
+ * Breaking even counts as a good day so long as something was staked; a day
+ * with nothing staked is treated as a loss, so sitting out costs you. The floor
+ * means a run of bad days cannot spiral - the budget stops at BUDGET_FLOOR.
+ */
+export function closeDay (S) {
+  const pl = S.balance - S.budget
+  const traded = S.investedToday > 0
+  const good = traded && pl >= 0
+
+  const next = Math.max(BUDGET_FLOOR,
+    Math.round(S.budget * (good ? BUDGET_UP : BUDGET_DOWN)))
+
+  S.week.push(pl)
+  let bonusPaid = 0
+  let weekTotal = null
+  if (S.week.length >= WEEK_DAYS) {
+    weekTotal = S.week.reduce((a, b) => a + b, 0)
+    if (weekTotal > 0) { S.bonus += WEEK_BONUS; bonusPaid = WEEK_BONUS }
+    S.week = []
   }
-  return { elapsed, gained, cost, lapsed }
+
+  const wasBudget = S.budget
+  S.budget = next
+  S.balance = next
+  S.dayIndex += 1
+  S.dayStartedMs = Date.now()
+  S.investedToday = 0
+  S.history.push(S.balance)
+
+  return { pl, traded, good, wasBudget, next, bonusPaid, weekTotal,
+           day: S.dayIndex }
 }
 
 function tickLines (elapsed) {
   const bits = []
   if (elapsed.gained > 0.0005) bits.push(`coherence +${elapsed.gained.toFixed(3)}`)
-  if (elapsed.cost > 0.5) bits.push(`subscription -${money(elapsed.cost)}`)
+
   const out = []
   if (bits.length) {
     out.push(t('scenes.time_passed',
       { elapsed: describeGame(elapsed.elapsed), gained: bits.join(', ') }))
   }
-  if (elapsed.lapsed) out.push(t('scenes.lapsed'))
   return out
 }
 
@@ -154,10 +209,12 @@ export function hud (S) {
     round: S.rounds + 1,
     bloch: { X: +b[0].toFixed(3), Y: +b[1].toFixed(3), Z: +b[2].toFixed(3) },
     coherence: +S.coherence.toFixed(3),
-    money: Math.round(S.money),
+    money: Math.round(S.balance),
     regenRate: +rate.toFixed(4),
     regenUnits: S.regenUnits,
-    dailyCost: dailyCost(S),
+    budget: Math.round(S.budget),
+    bonus: Math.round(S.bonus),
+    dayIndex: S.dayIndex,
     daySeconds: DAY_SECONDS,
     secondsToFull: S.coherence >= 0.999 ? 0 : Math.round((1 - S.coherence) / rate),
     history: S.history.map((v) => Math.round(v)),
@@ -214,11 +271,16 @@ export function sceneMain (S) {
     recovering,
     recovery: recovering
       ? describeReal((1 - S.coherence) / regenRate(S)) : '',
-    balance: money(S.money),
-    balance_raw: S.money,
-    subscribed: S.regenUnits > 0,
-    units: S.regenUnits,
-    daily: money(dailyCost(S)),
+    balance: money(S.balance),
+    balance_raw: S.balance,
+    budget: money(S.budget), budget_raw: S.budget,
+    bonus: money(S.bonus), bonus_raw: S.bonus,
+    has_bonus: S.bonus > 0,
+    day: S.dayIndex + 1,
+    day_left: describeReal(dayRemaining(S)),
+    pl: `${S.balance - S.budget >= 0 ? '+' : ''}${money(S.balance - S.budget)}`,
+    pl_raw: S.balance - S.budget,
+    upgrades: S.regenUnits,
   }))]
 }
 
@@ -259,8 +321,8 @@ export function sceneInvestment (S) {
     total: S.world.readouts - 1,
     coherence: S.coherence.toFixed(3),
     coherence_raw: S.coherence,
-    balance: money(S.money),
-    balance_raw: S.money,
+    balance: money(S.balance),
+    balance_raw: S.balance,
     last_chance: k === S.world.readouts - 2,
   })))
   return out
@@ -268,19 +330,19 @@ export function sceneInvestment (S) {
 
 export function sceneMarket (S) {
   S.expect = 'market'
-  const runway = dailyCost(S) > 0 ? S.money / dailyCost(S) : null
+
   return [text(t('scenes.marketplace', {
     recharge: describeReal(1 / BASE_REGEN),
-    unit_cost: money(UNIT_COST_PER_DAY),
+    unit_cost: money(UPGRADE_COST),
     coherence: S.coherence.toFixed(3), coherence_raw: S.coherence,
-    balance: money(S.money), balance_raw: S.money,
+    balance: money(S.balance), balance_raw: S.balance,
     units: S.regenUnits,
-    daily: money(dailyCost(S)), daily_raw: dailyCost(S),
     recovering: S.coherence < 0.999,
     recovery: S.coherence < 0.999
       ? describeReal((1 - S.coherence) / regenRate(S)) : '',
-    has_runway: runway !== null,
-    runway: runway !== null ? runway.toFixed(1) : '',
+    upgrades: S.regenUnits,
+    budget: money(S.budget), budget_raw: S.budget,
+    bonus: money(S.bonus), bonus_raw: S.bonus,
   }))]
 }
 
@@ -337,6 +399,8 @@ const num = (s) => {
 export async function handle (S, raw, emit = null) {
   const elapsed = tick(S)
   const pre = tickLines(elapsed).map(text)
+  // nothing is open here, so the books can be closed straight away
+  if (S.expect !== 'running' && dayIsOver(S)) pre.push(...endOfDay(S))
   let preSent = false
   const out = (...e) => ({ emissions: [...(preSent ? [] : pre), ...e.flat()] })
   const cmd = String(raw || '').trim().toLowerCase()
@@ -405,9 +469,9 @@ export async function handle (S, raw, emit = null) {
             (S.readoutIndex === 0 ? ' · **l** to leave' : ''),
         })))
       }
-      if (S.money < 1) return out(text(t('scenes.nothing_to_stake')))
+      if (S.balance < 1) return out(text(t('scenes.nothing_to_stake')))
       S.expect = 'stake'
-      return out(text(t('scenes.ask_stake', { balance: Math.floor(S.money) })))
+      return out(text(t('scenes.ask_stake', { balance: Math.floor(S.balance) })))
     }
 
     case 'stake': {
@@ -417,7 +481,7 @@ export async function handle (S, raw, emit = null) {
         return out(text(t('prompts.unknown',
           { options: '**i** to try again or **o** to observe' })))
       }
-      S.pending = { stake: clamp(v, 1, S.money) }
+      S.pending = { stake: clamp(Math.round(v), 1, Math.floor(S.balance)) }
       S.expect = 'target'
       return out(text(t('scenes.ask_target', { last: S.world.info.n - 1 })))
     }
@@ -442,12 +506,25 @@ export async function handle (S, raw, emit = null) {
       const last = S.world.readouts - 1
       if (exitAt === null || !Number.isInteger(exitAt) ||
           exitAt <= S.readoutIndex || exitAt > last) {
-        return out(text(t('scenes.ask_exit', { first: S.readoutIndex + 1, last })))
+        return out(text(t('scenes.ask_exit',
+          { first: moment(S.readoutIndex + 1), last: moment(last) })))
       }
+      // The day closes every position, so an exit beyond the bell would be cut
+      // short. Say so before the money is committed, and offer a way back.
+      if (crossesDayEnd(S, exitAt) && !S.pending.confirmed) {
+        S.pending.exitAt = exitAt
+        S.expect = 'confirm_exit'
+        return out(text(t('scenes.exit_past_bell', {
+          exit: moment(exitAt), remaining: describeReal(dayRemaining(S)),
+          reachable: moment(lastReachable(S)),
+        })))
+      }
+      S.pending.confirmed = false
       const q = S.pending.target
       const stake = S.pending.stake
       S.pending = null
-      S.money -= stake
+      S.balance -= stake
+      S.investedToday += 1
       if (emit) {
         preSent = true
         await emit([...pre, text(t('scenes.staking', { stake: money(stake), target: q, holding: holding(q) }))])
@@ -470,69 +547,49 @@ export async function handle (S, raw, emit = null) {
       }
     }
 
+    case 'confirm_exit': {
+      if (cmd === 'y' || cmd === 'yes') {
+        S.pending.confirmed = true
+        S.expect = 'exit'
+        return handle(S, String(S.pending.exitAt), emit)
+      }
+      S.expect = 'exit'
+      return out(text(t('scenes.ask_exit', {
+        first: moment(S.readoutIndex + 1),
+        last: moment(S.world.readouts - 1),
+      })))
+    }
+
     case 'market': {
       if (cmd === 'l') { const rnd = mulberry(S.seed + S.rounds * 7919)
                          return out(sceneMain(S), offerWorlds(S, rnd)) }
       if (cmd === 'b') { S.expect = 'buy'; return out(text(t('scenes.ask_units'))) }
-      if (cmd === 's') {
-        if (!S.regenUnits) return out(text(t('scenes.nothing_to_sell')))
-        S.expect = 'sell'
-        return out(text(t('scenes.ask_units_sell', { units: S.regenUnits })))
-      }
-      return out(text(t('prompts.unknown', { options: '**b**, **s** or **l**' })))
+      return out(text(t('prompts.unknown', { options: '**b** or **l**' })))
     }
 
     case 'buy': {
       const k = num(cmd)
       if (k === null || k < 1) return out(sceneMarket(S))
-      S.regenUnits += Math.floor(k)
-      return out(text(t('scenes.subscribed', {
-        rate: describeReal(1 / regenRate(S)), daily: money(dailyCost(S)),
-      })), sceneMarket(S))
-    }
-
-    case 'sell': {
-      const k = num(cmd)
-      if (k === null || k < 1) return out(sceneMarket(S))
-      S.regenUnits = Math.max(0, S.regenUnits - Math.floor(k))
-      return out(text(t('scenes.unsubscribed', {
-        rate: describeReal(1 / regenRate(S)), daily: money(dailyCost(S)),
-      })), sceneMarket(S))
-    }
-
-    case 'wait': {
-      const secs = num(cmd)
-      if (secs === null || secs <= 0) { S.expect = 'market'; return out(sceneMarket(S)) }
-      const hold = clamp(secs, 1, 600)
-      S.expect = 'holding'
-      S.holdUntil = Date.now() + hold * 1000
-      return {
-        emissions: [...pre, text(`Waiting ${Math.round(hold)}s. ` +
-          `Coherence returns at ${regenRate(S).toFixed(4)}/s` +
-          (S.regenUnits
-            ? `, and the meter runs at ${money(dailyCost(S))}/day.` : '.'))],
-        schedule: { kind: 'hold', ms: hold * 1000 },
+      const want = Math.floor(k)
+      const afford = Math.min(want, Math.floor(S.balance / UPGRADE_COST))
+      if (afford < 1) {
+        return out(text(t('scenes.cannot_afford',
+          { cost: money(UPGRADE_COST), balance: money(S.balance) })),
+          sceneMarket(S))
       }
+      S.balance -= afford * UPGRADE_COST
+      S.regenUnits += afford
+      return out(text(t('scenes.upgraded', {
+        bought: afford, spent: money(afford * UPGRADE_COST),
+        upgrades: S.regenUnits, recovery: describeReal(1 / regenRate(S)),
+      })), sceneMarket(S))
+
     }
 
     default:
       return out(text(t('prompts.nothing_to_decide')))
   }
 }
-
-function waitPrompt (S) {
-  const rate = regenRate(S)
-  if (S.coherence >= 0.999) {
-    S.expect = 'market'
-    return [text('Your qubit is already whole.'), ...sceneMarket(S)]
-  }
-  const need = Math.round((1 - S.coherence) / rate)
-  return [text(`At ${rate.toFixed(4)}/s it is ${need}s to full` +
-    (S.regenUnits
-      ? `, costing ${money(dailyCost(S) * need / DAY_SECONDS)}.` : '.') +
-    '\n\nWait how many seconds? (0 to think again)')]
-}
-
 
 // ---------------------------------------------------------------------------
 // The run: one readout released every STEP_MS, then the returns
@@ -579,6 +636,18 @@ function dueIndex (S, now = Date.now()) {
 export function step (S, now = Date.now()) {
   const r = S.run
   if (!r) return { emissions: [], done: true }
+
+  // The bell closes every position where it stands, whatever exit was chosen.
+  if (dayIsOver(S, now)) {
+    const at = Math.min(dueIndex(S, now), r.exitAt)
+    r.revealed = at
+    r.exitAt = at
+    r.forced = true
+    // the bell closes the position, then the books, and only then offers
+    // the next round - which must read the new day's budget
+    return { emissions: [...settle(S, { closeRound: false }),
+                         ...endOfDay(S), ...endRound(S)], done: true }
+  }
 
   const due = dueIndex(S, now)
   const from = r.revealed + 1
@@ -630,7 +699,7 @@ const fmt = (v) => `${v >= 0 ? '+' : ''}${v.toFixed(3)}`
 const pct = (m) => `${m >= 0 ? '+' : ''}${(m * 100).toFixed(1)}%`
 
 /** The returns scene, then back to the main scene. */
-function settle (S) {
+function settle (S, { closeRound = true } = {}) {
   const r = S.run
   const z0 = r.z[r.investAt][r.target]
   const z1 = r.z[r.exitAt][r.target]
@@ -638,9 +707,11 @@ function settle (S) {
   const mult = dz / 2
   // the stake was taken when the coupling was made; it comes back scaled by
   // (1 + multiplier), so a worst call loses it all and a best call doubles it
-  const returned = r.stake * (1 + mult)
+  // rounded to whole G: the day's P/L is balance - budget, and a float here
+  // makes an apparently flat day settle a hair under and bill the -5%
+  const returned = Math.round(r.stake * (1 + mult))
   const profit = returned - r.stake
-  S.money = Math.max(0, S.money + returned)
+  S.balance = Math.max(0, S.balance + returned)
 
   const before = S.coherence
   const fr = norm(r.apparatus)
@@ -657,15 +728,39 @@ function settle (S) {
     returned: money(returned), returned_raw: returned,
     profit: `${profit >= 0 ? '+' : ''}${money(profit)}`, profit_raw: profit,
     outcome: profit >= 0 ? 'profit' : 'loss',
-    balance: money(S.money), balance_raw: S.money,
+    balance: money(S.balance), balance_raw: S.balance,
     flat: Math.abs(dz) < 1e-6,
+    forced: !!r.forced,
     coherence: S.coherence.toFixed(3), was_coherence: before.toFixed(3),
     drained: S.coherence < before - 0.3,
   }) }]
 
-  S.history.push(S.money)
   S.run = null
-  return [...out, ...endRound(S)]
+  return closeRound ? [...out, ...endRound(S)] : out
+}
+
+/** Close the books, pay any weekly bonus, and hand out tomorrow's budget. */
+export function endOfDay (S) {
+  const r = closeDay(S)
+  const out = [text(t('scenes.day_end', {
+    day: r.day,
+    pl: `${r.pl >= 0 ? '+' : ''}${money(r.pl)}`, pl_raw: r.pl,
+    good: r.good, traded: r.traded, idle: !r.traded,
+    was_budget: money(r.wasBudget), budget: money(r.next),
+    change: r.good ? '+10%' : '-5%',
+    floored: r.next === BUDGET_FLOOR,
+    floor: money(BUDGET_FLOOR),
+  }))]
+  if (r.weekTotal !== null) {
+    out.push(text(t('scenes.week_end', {
+      total: `${r.weekTotal >= 0 ? '+' : ''}${money(r.weekTotal)}`,
+      total_raw: r.weekTotal,
+      paid: r.bonusPaid > 0,
+      bonus: money(r.bonusPaid),
+      pot: money(S.bonus),
+    })))
+  }
+  return out
 }
 
 function endRound (S) {
@@ -673,7 +768,7 @@ function endRound (S) {
   S.world = null
   S.clean = null
   S.readoutIndex = 0
-  if (S.money < 1 && S.regenUnits === 0) {
+  if (S.balance < 1) {
     S.expect = 'over'
     return [{ kind: 'text', text: t('scenes.broke') }]
   }
@@ -681,12 +776,4 @@ function endRound (S) {
   return [...sceneMain(S), ...offerWorlds(S, rnd)]
 }
 
-/** A deliberate wait has elapsed. */
-export function endHold (S) {
-  const elapsed = tick(S)
-  const lines = tickLines(elapsed).map(text)
-  S.expect = 'market'
-  return [...lines,
-    text(`Coherence now ${S.coherence.toFixed(3)}.`),
-    ...sceneMarket(S)]
-}
+

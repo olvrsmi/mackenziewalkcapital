@@ -35,7 +35,7 @@ function buttonsFor (S) {
     case 'exit': return ['readout n…', 'the end']
     case 'target': return Array.from({ length: S.world?.info?.n || 0 },
                                      (_, q) => `q${q}`)
-    case 'stake': return ['100G', '250G', '500G', `All ${Math.floor(S.money)}G`]
+    case 'stake': return ['100G', '250G', '500G', `All ${Math.floor(S.balance)}G`]
     case 'market': return ['Buy', 'Sell', 'Leave']
     case 'buy': case 'sell': return ['5', '10', '25', '50']
     default: return null
@@ -98,6 +98,6 @@ while (!step.done && guard++ < 40) {
 
 console.log(`\n  sent ${sent.text} text and ${sent.photo} photos ` +
             `(${(sent.bytes / 1024 | 0)}KB total)`)
-console.log(`  balance ${Math.round(S.money)}G · coherence ${S.coherence.toFixed(3)} ` +
+console.log(`  balance ${Math.round(S.balance)}G · coherence ${S.coherence.toFixed(3)} ` +
             `· expect '${S.expect}'`)
 if (pngDir) console.log(`  images written to ${pngDir}`)
