@@ -11,6 +11,8 @@
 
 import { createCanvas } from '@napi-rs/canvas'
 
+import { t } from './copy.mjs'
+
 const INK = '#FFFFFF'      // labels and values
 const DIM = '#AAAAAA'      // axis annotation
 const LINE = '#444444'     // baselines and rules
@@ -122,7 +124,7 @@ export function renderTraces ({ n, z, upto, totalReadouts, target = null,
     ctx.textAlign = 'left'
     ctx.fillText('readout 0', padL, padT + n * 26 + 18)
     ctx.textAlign = 'right'
-    ctx.fillText(`${total}  .  <Z> -1 to +1 per row`,
+    ctx.fillText(`${total}  .  ${t('plots.traces_legend')}`,
                  padL + plotW, padT + n * 26 + 18)
   })
 }
@@ -196,7 +198,7 @@ export function renderGatemap ({ n, layers, cuts, nLayers, title }) {
     ctx.textAlign = 'left'
     ctx.fillText('layer 0', padL, y(n - 1) + 22)
     ctx.textAlign = 'right'
-    ctx.fillText(`${D}  .  [] 1-qubit  o-o 2-qubit  : readouts`,
+    ctx.fillText(`${D}  .  ${t('plots.gatemap_legend')}`,
                  padL + plotW, y(n - 1) + 22)
   })
 }

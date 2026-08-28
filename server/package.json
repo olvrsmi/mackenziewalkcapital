@@ -9,11 +9,13 @@
     "start": "node bot.mjs",
     "dev": "node --watch bot.mjs",
     "render-check": "node dryrun.mjs --png /tmp/mw-render",
-    "dryrun": "node dryrun.mjs"
+    "dryrun": "node dryrun.mjs",
+    "copy-check": "node copy-check.mjs"
   },
   "dependencies": {
     "@napi-rs/canvas": "^0.1.60",
-    "grammy": "^1.30.0"
+    "grammy": "^1.30.0",
+    "yaml": "^2.9.0"
   },
   "engines": {
     "node": ">=18"

@@ -72,6 +72,29 @@ report can therefore cover several readouts, or none.
 You choose where to take profit when you open a position; it closes there and
 the round ends. Leaving a world is free only before you have observed anything.
 
+## Writing
+
+Every word a player reads lives in `server/copy.yaml` — messages, button labels,
+world names, the complexity vocabulary, plot captions. No code needs touching to
+change any of it, and the bot re-reads the file on save, so an edit shows up in
+the next message without a restart or losing anyone's position.
+
+Values arrive already formatted: `{balance}` is `1,000G`, `{coherence}` is
+`0.999`. Each entry is commented with what it may use. When prose needs to bend
+there are escape hatches — `{n} opportunit{n|s:y:ies}`, `{#if recovering} …
+{/if}`, `{balance_raw|money}` — but ordinary lines need none of them. Anywhere a
+list is given, one line is picked at random.
+
+```
+npm run copy-check
+```
+
+checks both directions: that every key the code asks for exists, and that every
+`{placeholder}` is one the engine actually supplies. It plays a round with a
+recording renderer, so it tests what the game really passes rather than a
+hand-kept list. A missing key or bad filter degrades one message and logs; it
+never stops a round.
+
 ## How the pieces fit
 
 `model/engine.py` answers three ops on stdin — `worlds`, `scout`, `play` — and

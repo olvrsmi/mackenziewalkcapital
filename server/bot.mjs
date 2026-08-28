@@ -17,6 +17,7 @@ import './env.mjs'   // must come first: it fills process.env for the rest
 import { Bot, InlineKeyboard, InputFile, GrammyError, HttpError } from 'grammy'
 
 import * as game from './game.mjs'
+import { t, loadCopy, watchCopy, copyInfo } from './copy.mjs'
 import * as store from './sessions.mjs'
 import { renderTraces, renderGatemap } from './render.mjs'
 import { modelInfo } from './model.mjs'
@@ -61,20 +62,20 @@ function keyboardFor (S) {
     case 'world': {
       (S.worlds || []).forEach((w, i) => {
         const n = w.info.n
-        k.text(`${i + 1}. ${w.name} — ${n} opportunit${n === 1 ? 'y' : 'ies'}`,
-               `${i + 1}`).row()
+        k.text(t('buttons.world',
+          { index: i + 1, world: w.name, opportunities: n }), `${i + 1}`).row()
       })
-      k.text('Marketplace', 'm')
+      k.text(t('buttons.marketplace'), 'm')
       return k
     }
     case 'invest':
-      k.text('Invest', 'i').text('Observe', 'o')
-      if (S.readoutIndex === 0) k.text('Leave', 'l')
+      k.text(t('buttons.invest'), 'i').text(t('buttons.observe'), 'o')
+      if (S.readoutIndex === 0) k.text(t('buttons.leave'), 'l')
       return k
     case 'target': {
       const n = S.world?.info?.n || 0
       for (let q = 0; q < n; q++) {
-        k.text(`q${q}`, `${q}`)
+        k.text(t('buttons.qubit', { index: q }), `${q}`)
         if ((q + 1) % 4 === 0 && q + 1 < n) k.row()
       }
       return k
@@ -82,7 +83,8 @@ function keyboardFor (S) {
     case 'exit': {
       const last = (S.world?.readouts || 1) - 1
       for (let r = S.readoutIndex + 1; r <= last; r++) {
-        k.text(r === last ? `${r} (the end)` : `readout ${r}`, `${r}`)
+        k.text(t(r === last ? 'buttons.exit_end' : 'buttons.exit_point',
+                 { readout: r }), `${r}`)
         if ((r - S.readoutIndex) % 3 === 0 && r < last) k.row()
       }
       return k
@@ -92,10 +94,10 @@ function keyboardFor (S) {
       // and a tap explains itself rather than doing nothing
       const held = S.world?.name
       for (const w of S.worlds || []) {
-        k.text(w.name === held ? `${w.name} (position held)` : `${w.name} (locked)`,
-               'locked').row()
+        k.text(t(w.name === held ? 'buttons.held' : 'buttons.locked',
+                 { world: w.name }), 'locked').row()
       }
-      k.text('Marketplace', 'm').text('Status', 'state')
+      k.text(t('buttons.marketplace'), 'm').text(t('buttons.status'), 'state')
       return k
     }
     case 'stake': {
@@ -104,13 +106,15 @@ function keyboardFor (S) {
         .filter((v) => v >= 1 && v <= money)
         .sort((a, b) => a - b)
       picks.forEach((v, i) => {
-        k.text(v === money ? `All ${v}G` : `${v}G`, `${v}`)
+        k.text(t(v === money ? 'buttons.all_stake' : 'buttons.stake',
+                 { amount: `${v.toLocaleString('en-GB')}G` }), `${v}`)
         if ((i + 1) % 3 === 0) k.row()
       })
       return k
     }
     case 'market':
-      return k.text('Buy', 'b').text('Sell', 's').text('Leave', 'l')
+      return k.text(t('buttons.buy'), 'b').text(t('buttons.sell'), 's')
+        .text(t('buttons.leave'), 'l')
     case 'buy':
       return k.text('5', '5').text('10', '10').text('25', '25').text('50', '50')
     case 'sell':
@@ -297,9 +301,10 @@ bot.on('callback_query:data', async (ctx) => {
   const chatId = String(ctx.chat?.id ?? ctx.from.id)
   if (ctx.callbackQuery.data === 'locked') {
     const S = await store.load(chatId)
-    const until = S?.run ? ` until readout ${S.run.exitAt}` : ''
     await ctx.answerCallbackQuery({
-      text: `Your money is committed to ${S?.world?.name || 'a world'}${until}.`,
+      text: t('buttons.locked_toast', {
+        world: S?.world?.name || 'a world', until: S?.run?.exitAt ?? '?',
+      }),
       show_alert: false,
     }).catch(() => {})
     return
@@ -345,11 +350,15 @@ try {
   process.exit(1)
 }
 
+loadCopy()
+watchCopy()
+
 const resumed = await store.resumeAll(fireFor)
-const t = timeInfo()
+const clock = timeInfo()
 console.log('\n  OFFICE 4B, 6 MACKENZIE WALK - telegram')
 console.log(`  model    ${modelInfo().python}`)
-console.log(`  time     ${t.scale}x  (a game day is ${describeReal(t.gameDaySeconds)})`)
+console.log(`  time     ${clock.scale}x  ` +
+            `(a game day is ${describeReal(clock.gameDaySeconds)})`)
 console.log(`  sessions ${resumed.sessions} saved, ${resumed.resumed} resumed`)
 if (ALLOW.length) console.log(`  allow    ${ALLOW.length} user id(s)`)
 console.log('  polling...\n')

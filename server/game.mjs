@@ -10,6 +10,7 @@
 
 import { callModel } from './model.mjs'
 import { gameSeconds, describeGame, describeReal, GAME_DAY_SECONDS } from './time.mjs'
+import { t, list } from './copy.mjs'
 
 export const READOUTS = 8
 
@@ -33,33 +34,18 @@ export const REGEN_UNIT = BASE_REGEN * 0.25                // per game second
 export const UNIT_COST_PER_DAY = 1                         // G per game day
 export const DAY_SECONDS = GAME_DAY_SECONDS                // game seconds
 
-const WORLD_NAMES = [
-  'Powder Pram', 'Rice Vision', 'Tables Expert', 'Tidy Memo',
-  'Less Locker', 'Bats Dawn', 'Skinny Reds', 'Sadly Trial',
-  'Cooks Vrush', 'Shut Cube', 'Candle Master', 'Pile Fixed',
-  'Radio Farms', 'Engine Ocean', 'Curiosity Metro', 'Tiger Eaten',
-  'Closed Shots', 'Closed Hits', 'Lonely Jumps', 'Open Online',
-  'Fine Class', 'Normal Dark', 'Caller Lions', 'Chin Lend',
-  'Every Couches', 'Liked Rounds', 'Third Hooks', 'Think Goes',
-  'Spare Enjoyable', 'Bland Chase', 'Salsa Shade', 'Wanted Gravy',
-  'Social Note', 'Audio Grace', 'Limbs Send',
-]
-
-const CHATTER = [
-  'The circuit is mid-run. Nothing to decide until it settles.',
-  'Noted. The gates do not care.',
-  'Still running. You can only watch from here.',
-  'The stake is placed. It plays out either way.',
-]
-
 const money = (v) => `${Math.round(v).toLocaleString('en-GB')}G`
 
-const COMPLEXITY = [[25, 'simple'], [60, 'moderate'], [150, 'involved'],
-                    [500, 'dense'], [Infinity, 'labyrinthine']]
-
-/** The technical facts of a circuit, said as a market would say them. */
+/**
+ * The technical facts of a circuit, said as a market would say them.
+ *
+ * The complexity words come from copy.yaml and the bands are derived from how
+ * many there are, so a writer can add or remove one without touching thresholds.
+ */
 export function prospectus (info) {
-  const complexity = COMPLEXITY.find(([lim]) => info.gates < lim)[1]
+  const words = list('vocabulary.complexity')
+  const band = words.findIndex((_, i) => info.gates < 15 * Math.pow(3.2, i + 1))
+  const complexity = words[band === -1 ? words.length - 1 : band] || 'unknown'
   const monopoly = Math.round(100 * info.pairs.length / Math.max(1, info.max_pairs))
   const volatility = Math.round(100 * (info.volatility ?? 0) / 2)
   return {
@@ -140,13 +126,16 @@ export function tick (S, nowMs = Date.now()) {
   return { elapsed, gained, cost, lapsed }
 }
 
-function tickLines (t) {
+function tickLines (elapsed) {
   const bits = []
-  if (t.gained > 0.0005) bits.push(`coherence +${t.gained.toFixed(3)}`)
-  if (t.cost > 0.5) bits.push(`subscription -${money(t.cost)}`)
+  if (elapsed.gained > 0.0005) bits.push(`coherence +${elapsed.gained.toFixed(3)}`)
+  if (elapsed.cost > 0.5) bits.push(`subscription -${money(elapsed.cost)}`)
   const out = []
-  if (bits.length) out.push(`${describeGame(t.elapsed)} passed: ${bits.join(', ')}`)
-  if (t.lapsed) out.push('You could not cover the subscription. The plan has lapsed.')
+  if (bits.length) {
+    out.push(t('scenes.time_passed',
+      { elapsed: describeGame(elapsed.elapsed), gained: bits.join(', ') }))
+  }
+  if (elapsed.lapsed) out.push(t('scenes.lapsed'))
   return out
 }
 
@@ -191,7 +180,8 @@ function tracesPanel (S, upto, opts = {}) {
     totalReadouts: S.world.readouts,
     target: opts.target ?? null,
     interventionAt: opts.interventionAt ?? null,
-    title: opts.title || `${S.world.name} — <Z> to readout ${upto}`,
+    title: opts.title || t('plots.traces_title',
+      { world: S.world.name, progress: upto }),
   }
 }
 
@@ -203,8 +193,10 @@ function gatemapPanel (S) {
     cuts: S.clean.cuts,
     nLayers: S.clean.n_layers,
     pairs: S.world.info.pairs,
-    title: `${S.world.name} — ${S.world.info.gates} gates over ` +
-           `${S.clean.n_layers} layers`,
+    title: t('plots.gatemap_title', {
+      world: S.world.name, gates: S.world.info.gates,
+      layers: S.clean.n_layers,
+    }),
   }
 }
 
@@ -213,15 +205,20 @@ function gatemapPanel (S) {
 // ---------------------------------------------------------------------------
 
 export function sceneMain (S) {
-  const recovery = S.coherence < 0.999
-    ? ` (recovery in ${describeReal((1 - S.coherence) / regenRate(S))})`
-    : ''
-  return [text(
-    `**Round ${S.rounds + 1}**\n\n` +
-    `Your coherence: ${S.coherence.toFixed(3)}${recovery}\n` +
-    `Your balance: ${money(S.money)}` +
-    (S.regenUnits
-      ? `\nSubscription: ${money(dailyCost(S))} a game day` : ''))]
+  const recovering = S.coherence < 0.999
+  return [text(t('scenes.round', {
+    round: S.rounds + 1,
+    coherence: S.coherence.toFixed(3),
+    coherence_raw: S.coherence,
+    recovering,
+    recovery: recovering
+      ? describeReal((1 - S.coherence) / regenRate(S)) : '',
+    balance: money(S.money),
+    balance_raw: S.money,
+    subscribed: S.regenUnits > 0,
+    units: S.regenUnits,
+    daily: money(dailyCost(S)),
+  }))]
 }
 
 export function offerWorlds (S, rnd) {
@@ -237,14 +234,15 @@ export function offerWorlds (S, rnd) {
   // names must be distinct within an offer, or two worlds read as the same place
   const names = []
   while (names.length < picks.length) {
-    const n = WORLD_NAMES[Math.floor(rnd() * WORLD_NAMES.length)]
+    const names_ = list('worlds')
+    const n = names_[Math.floor(rnd() * names_.length)]
     if (!names.includes(n)) names.push(n)
   }
   S.worlds = picks.map((info, i) => ({
     info, name: names[i], readouts: info.readouts,
   }))
   S.expect = 'world'
-  return [text('Three worlds are open to you.')]
+  return [text(t('scenes.offer'))]
 }
 
 export function sceneInvestment (S) {
@@ -253,34 +251,36 @@ export function sceneInvestment (S) {
   const out = []
   if (k === 0) out.push(gatemapPanel(S))
   out.push(tracesPanel(S, k))
-  out.push(text(
-    `**${S.world.name}** — progress ${k}/${S.world.readouts - 1}\n\n` +
-    `Your coherence: ${S.coherence.toFixed(3)}\n` +
-    `Your balance: ${money(S.money)}` +
-    (k === S.world.readouts - 2
-      ? '\n\n_Last chance to act._' : '')))
+  out.push(text(t('scenes.investment', {
+    world: S.world.name,
+    progress: k,
+    total: S.world.readouts - 1,
+    coherence: S.coherence.toFixed(3),
+    coherence_raw: S.coherence,
+    balance: money(S.money),
+    balance_raw: S.money,
+    last_chance: k === S.world.readouts - 2,
+  })))
   return out
 }
 
 export function sceneMarket (S) {
   S.expect = 'market'
   const runway = dailyCost(S) > 0 ? S.money / dailyCost(S) : null
-  return [text(
-    `**The marketplace**\n` +
-    `A spent qubit comes back on its own in ` +
-    `${describeReal(1 / BASE_REGEN)}. Units make that faster: each one adds a ` +
-    `quarter again for ${UNIT_COST_PER_DAY}G a game day, billed continuously.` +
-    `\n\nCoherence ${S.coherence.toFixed(3)} · balance ${money(S.money)}\n` +
-    `Units subscribed ${S.regenUnits} · ${money(dailyCost(S))} a game day` +
-    (S.coherence < 0.999
-      ? `\nFull again in ${describeReal((1 - S.coherence) / regenRate(S))}` +
-        (S.regenUnits ? '' : ` — ${describeReal(FULL_RECHARGE_GAME_SECONDS *
-          (1 - S.coherence) / (1 + 0.25 * 10))} with ten units`)
-      : '\nYour qubit is whole.') +
-    (runway !== null ? `\nRunway ${runway.toFixed(1)} game days` : '') +
-    '\n\nType **b** to buy · **s** to sell · **l** to leave')]
+  return [text(t('scenes.marketplace', {
+    recharge: describeReal(1 / BASE_REGEN),
+    unit_cost: money(UNIT_COST_PER_DAY),
+    coherence: S.coherence.toFixed(3), coherence_raw: S.coherence,
+    balance: money(S.money), balance_raw: S.money,
+    units: S.regenUnits,
+    daily: money(dailyCost(S)), daily_raw: dailyCost(S),
+    recovering: S.coherence < 0.999,
+    recovery: S.coherence < 0.999
+      ? describeReal((1 - S.coherence) / regenRate(S)) : '',
+    has_runway: runway !== null,
+    runway: runway !== null ? runway.toFixed(1) : '',
+  }))]
 }
-
 
 // ---------------------------------------------------------------------------
 // The command handler. Short tokens for now; `expect` gives each its meaning.
@@ -299,17 +299,11 @@ export async function boot (S) {
   const rnd = mulberry(S.seed + S.rounds * 7919)
   return {
     emissions: [
-      text('**OFFICE 4B, 6 MACKENZIE WALK**\n\n' +
-        'You carry one qubit. Each world is a quantum circuit you may enter. ' +
-        'Pick a moment, couple your qubit to one of theirs, and stake on it. ' +
-        'You are paid the change in that qubit\'s Z, halved, times your stake.\n\n' +
-        'Your qubit keeps whatever the circuit does to it. You keep exactly as ' +
-        'much coherence as the qubit you couple to had itself — couple to ' +
-        'something the circuit has already scrambled and yours is scrambled too. ' +
-        `It returns at ${BASE_REGEN.toFixed(3)}/s on its own; the marketplace ` +
-        'sells more.\n\n' +
-        `_${S.allWorlds.length} worlds available (${S.skipped} circuits ` +
-        'unusable — mid-circuit measurement, unparseable QASM, or out of range)._'),
+      text(t('scenes.welcome', {
+        worlds: S.allWorlds.length,
+        skipped: S.skipped,
+        recharge: describeReal(1 / BASE_REGEN),
+      })),
       ...sceneMain(S),
       ...offerWorlds(S, rnd),
     ],
@@ -339,45 +333,40 @@ const num = (s) => {
  * returned follows when the work is done.
  */
 export async function handle (S, raw, emit = null) {
-  const t = tick(S)
-  const pre = tickLines(t).map(text)
+  const elapsed = tick(S)
+  const pre = tickLines(elapsed).map(text)
   let preSent = false
   const out = (...e) => ({ emissions: [...(preSent ? [] : pre), ...e.flat()] })
   const cmd = String(raw || '').trim().toLowerCase()
 
-  if (!cmd) return out(text('Say something, or type **help**.'))
-  if (cmd === 'help' || cmd === '?') {
-    return out(text(
-      '**Commands**\n' +
-      '`1` `2` `3` — enter a world · `m` — marketplace · `t` — wait\n' +
-      '`i` — invest · `w` — watch on to the next readout\n' +
-      '`b` / `s` — buy or sell regeneration units · `l` — leave the marketplace\n' +
-      'When asked for a number, just type it.'))
-  }
+  if (!cmd) return out(text(t('prompts.say_something')))
+  if (cmd === 'help' || cmd === '?') return out(text(t('prompts.help')))
   if (cmd === 'state' || cmd === 'status') return out(sceneMain(S))
 
   switch (S.expect) {
     case 'running':
     case 'holding':
-      return out(text(CHATTER[Math.floor(Math.random() * CHATTER.length)]))
+      return out(text(t('chatter')))
 
     case 'world': {
       if (cmd === 'm') return out(sceneMarket(S))
       const i = num(cmd)
       if (![1, 2, 3].includes(i)) {
-        return out(text('Type **1**, **2** or **3**, or **m**, or **t**.'))
+        return out(text(t('prompts.unknown',
+          { options: '**1**, **2** or **3**, or **m**' })))
       }
       S.world = S.worlds[i - 1]
       S.expect = 'scouting'
       // acknowledge the tap before going to the model, not after
       const pr = prospectus(S.world.info)
-      const entered = text(
-        `**${S.world.name}**\n` +
-        `${pr.opportunities} investment opportunit` +
-        `${pr.opportunities === 1 ? 'y' : 'ies'} · ${pr.complexity}\n` +
-        `${pr.monopoly}% corporate monopolisation\n` +
-        `${pr.volatility}% expected volatility` +
-        (S.world.info.connected ? '' : '\n_Holdings here do not all connect._'))
+      const entered = text(t('scenes.entered', {
+        world: S.world.name,
+        opportunities: pr.opportunities,
+        complexity: pr.complexity,
+        monopoly: pr.monopoly,
+        volatility: pr.volatility,
+        disconnected: !S.world.info.connected,
+      }))
       if (emit) {
         preSent = true
         await emit([...pre, entered])
@@ -399,51 +388,50 @@ export async function handle (S, raw, emit = null) {
         S.world = null
         S.clean = null
         const rnd = mulberry(S.seed + S.rounds * 7919)
-        return out(text('You leave before anything is committed.'),
-                   sceneMain(S), offerWorlds(S, rnd))
+        return out(text(t('scenes.left')), sceneMain(S), offerWorlds(S, rnd))
       }
       if (cmd === 'o' || cmd === 'w') {
         S.readoutIndex += 1
         if (S.readoutIndex > S.world.readouts - 2) {
-          return out(text('You observed the whole circuit and staked nothing. ' +
-                          'Your qubit is untouched.'), ...endRound(S))
+          return out(text(t('scenes.observed_all')), ...endRound(S))
         }
         return out(sceneInvestment(S))
       }
       if (cmd !== 'i') {
-        return out(text('Type **i** to invest · **o** to observe' +
-          (S.readoutIndex === 0 ? ' · **l** to leave' : '')))
+        return out(text(t('prompts.unknown', {
+          options: '**i** to invest · **o** to observe' +
+            (S.readoutIndex === 0 ? ' · **l** to leave' : ''),
+        })))
       }
-      if (S.money < 1) return out(text('You have nothing left to stake.'))
+      if (S.money < 1) return out(text(t('scenes.nothing_to_stake')))
       S.expect = 'stake'
-      return out(text(`How much do you stake? (1 – ${Math.floor(S.money)})`))
+      return out(text(t('scenes.ask_stake', { balance: Math.floor(S.money) })))
     }
 
     case 'stake': {
       const v = num(cmd)
       if (v === null || v < 1) {
         S.expect = 'invest'
-        return out(text('Not a stake. Type **i** to try again or **w** to watch.'))
+        return out(text(t('prompts.unknown',
+          { options: '**i** to try again or **o** to observe' })))
       }
       S.pending = { stake: clamp(v, 1, S.money) }
       S.expect = 'target'
-      return out(text(`Couple to which qubit? (0 – ${S.world.info.n - 1})`))
+      return out(text(t('scenes.ask_target', { last: S.world.info.n - 1 })))
     }
 
     case 'target': {
       const q = num(cmd)
       if (q === null || q < 0 || q >= S.world.info.n || !Number.isInteger(q)) {
-        return out(text(`Pick a qubit from 0 to ${S.world.info.n - 1}.`))
+        return out(text(t('scenes.ask_target', { last: S.world.info.n - 1 })))
       }
       S.pending.target = q
       S.expect = 'exit'
       const last = S.world.readouts - 1
-      return out(text(
-        `Coupling to **q${q}**. Where do you take profit?\n\n` +
-        `You are at readout ${S.readoutIndex}. Choose any readout from ` +
-        `${S.readoutIndex + 1} to ${last} — the position closes there and the ` +
-        `round ends. Later is more time for the qubit to move, in either ` +
-        `direction.`))
+      return out(text(t('scenes.take_profit', {
+        world: S.world.name, target: q, progress: S.readoutIndex,
+        first: S.readoutIndex + 1, last,
+      })))
     }
 
     case 'exit': {
@@ -451,7 +439,7 @@ export async function handle (S, raw, emit = null) {
       const last = S.world.readouts - 1
       if (exitAt === null || !Number.isInteger(exitAt) ||
           exitAt <= S.readoutIndex || exitAt > last) {
-        return out(text(`Pick a readout from ${S.readoutIndex + 1} to ${last}.`))
+        return out(text(t('scenes.ask_exit', { first: S.readoutIndex + 1, last })))
       }
       const q = S.pending.target
       const stake = S.pending.stake
@@ -459,8 +447,7 @@ export async function handle (S, raw, emit = null) {
       S.money -= stake
       if (emit) {
         preSent = true
-        await emit([...pre, text(`Staking ${money(stake)} on **q${q}**. ` +
-          'Coupling now…')])
+        await emit([...pre, text(t('scenes.staking', { stake: money(stake), target: q }))])
       }
       const play = await callModel({
         op: 'play', circuit: S.world.info.id, readouts: READOUTS,
@@ -472,10 +459,9 @@ export async function handle (S, raw, emit = null) {
       S.expect = 'running'
       return {
         emissions: [...(preSent ? [] : pre),
-          ...(preSent ? [] : [text(`Staking ${money(stake)} on **q${q}**. ` +
-                                   'Coupling now.')]),
-          text(`_Position open on **q${q}** until progress ${exitAt}. ` +
-               `Reports every ${postEvery()}._`),
+          ...(preSent ? [] : [text(t('scenes.staking', { stake: money(stake), target: q }))]),
+          text(t('scenes.position_open',
+                 { target: q, exit: exitAt, every: postEvery() })),
           stepPanel(S)],
         schedule: { kind: 'step', ms: msUntilNextPost() },
       }
@@ -484,31 +470,31 @@ export async function handle (S, raw, emit = null) {
     case 'market': {
       if (cmd === 'l') { const rnd = mulberry(S.seed + S.rounds * 7919)
                          return out(sceneMain(S), offerWorlds(S, rnd)) }
-      if (cmd === 'b') { S.expect = 'buy'; return out(text('How many units?')) }
+      if (cmd === 'b') { S.expect = 'buy'; return out(text(t('scenes.ask_units'))) }
       if (cmd === 's') {
-        if (!S.regenUnits) return out(text('You have nothing to sell.'))
+        if (!S.regenUnits) return out(text(t('scenes.nothing_to_sell')))
         S.expect = 'sell'
-        return out(text(`How many units? (up to ${S.regenUnits})`))
+        return out(text(t('scenes.ask_units_sell', { units: S.regenUnits })))
       }
-      return out(text('Type **b**, **s** or **l**.'))
+      return out(text(t('prompts.unknown', { options: '**b**, **s** or **l**' })))
     }
 
     case 'buy': {
       const k = num(cmd)
       if (k === null || k < 1) return out(sceneMarket(S))
       S.regenUnits += Math.floor(k)
-      return out(text(`Subscribed. Your rate is now ` +
-        `${regenRate(S).toFixed(4)}/s at ${money(dailyCost(S))}/day.`),
-        sceneMarket(S))
+      return out(text(t('scenes.subscribed', {
+        rate: describeReal(1 / regenRate(S)), daily: money(dailyCost(S)),
+      })), sceneMarket(S))
     }
 
     case 'sell': {
       const k = num(cmd)
       if (k === null || k < 1) return out(sceneMarket(S))
       S.regenUnits = Math.max(0, S.regenUnits - Math.floor(k))
-      return out(text(`Cancelled. Your rate is now ` +
-        `${regenRate(S).toFixed(4)}/s at ${money(dailyCost(S))}/day.`),
-        sceneMarket(S))
+      return out(text(t('scenes.unsubscribed', {
+        rate: describeReal(1 / regenRate(S)), daily: money(dailyCost(S)),
+      })), sceneMarket(S))
     }
 
     case 'wait': {
@@ -527,7 +513,7 @@ export async function handle (S, raw, emit = null) {
     }
 
     default:
-      return out(text('Nothing to decide just now.'))
+      return out(text(t('prompts.nothing_to_decide')))
   }
 }
 
@@ -555,8 +541,10 @@ function stepPanel (S) {
   const z0 = r.z[r.investAt][r.target]
   return tracesPanel(S, k, {
     z: r.z, target: r.target, interventionAt: r.investAt,
-    title: `${S.world.name} — q${r.target} running ` +
-      `${(((r.z[k][r.target] - z0) / 2) * 100).toFixed(1)}%`,
+    title: t('plots.traces_running', {
+      world: S.world.name, target: r.target,
+      change: pct((r.z[k][r.target] - z0) / 2),
+    }),
   })
 }
 
@@ -594,9 +582,16 @@ export function step (S, now = Date.now()) {
   if (due < from) {
     // nothing has come due; say so rather than going silent
     return {
-      emissions: [text(`**${S.world.name}** · q${r.target} @ ` +
-        `${fmt(r.z[r.revealed][r.target])} · ` +
-        `${pct((r.z[r.revealed][r.target] - r.z[r.investAt][r.target]) / 2)} →`)],
+      emissions: [text(t('scenes.readout', {
+        world: S.world.name, target: r.target,
+        value: fmt(r.z[r.revealed][r.target]),
+        value_raw: r.z[r.revealed][r.target],
+        change: pct((r.z[r.revealed][r.target] -
+                     r.z[r.investAt][r.target]) / 2),
+        change_raw: (r.z[r.revealed][r.target] -
+                     r.z[r.investAt][r.target]) / 2,
+        arrow: '→',
+      }))],
       schedule: { kind: 'step', ms: msUntilNextPost(now) },
       done: false,
     }
@@ -609,8 +604,11 @@ export function step (S, now = Date.now()) {
     const z = r.z[k][r.target]
     const prev = r.z[k - 1][r.target]
     const arrow = z > prev + 1e-6 ? '↗' : (z < prev - 1e-6 ? '↘' : '→')
-    rows.push(`**${S.world.name}** · q${r.target} @ ${fmt(z)} · ` +
-              `${pct((z - z0) / 2)} ${arrow}`)
+    rows.push(t('scenes.readout', {
+      world: S.world.name, target: r.target,
+      value: fmt(z), value_raw: z,
+      change: pct((z - z0) / 2), change_raw: (z - z0) / 2, arrow,
+    }))
   }
   const emissions = [text(rows.join('\n')), stepPanel(S)]
 
@@ -640,22 +638,21 @@ function settle (S) {
   if (fr > 1e-9) S.direction = r.apparatus.map((x) => x / fr)
   S.coherence = clamp(fr, 0, 1)
 
-  const out = [{ kind: 'text', text:
-    `**Returns**\n` +
-    `q${r.target} ⟨Z⟩ when you coupled  ${z0.toFixed(4)}\n` +
-    `q${r.target} ⟨Z⟩ at readout ${r.exitAt}      ${z1.toFixed(4)}\n` +
-    `Change                    ${dz >= 0 ? '+' : ''}${dz.toFixed(4)}\n` +
-    `Multiplier (change / 2)   ${mult >= 0 ? '+' : ''}${mult.toFixed(4)}\n\n` +
-    `Staked ${money(r.stake)} · returned ${money(returned)} · ` +
-    `**${profit >= 0 ? 'profit' : 'loss'} ${profit >= 0 ? '+' : ''}` +
-    `${money(profit)}**\n` +
-    `Balance ${money(S.money)}` +
-    (Math.abs(dz) < 1e-6 ? '\n\n_That qubit never moved. Some of them never do._' : '') +
-    `\n\nYour qubit came back at coherence ${S.coherence.toFixed(3)} ` +
-    `(was ${before.toFixed(3)})` +
-    (S.coherence < before - 0.3
-      ? `\n_q${r.target} was well scrambled by the time you reached it, and took ` +
-        'your qubit with it._' : '') }]
+  const out = [{ kind: 'text', text: t('scenes.returns', {
+    target: r.target,
+    opened_at: z0.toFixed(4), closed_at: z1.toFixed(4),
+    exit: r.exitAt,
+    change: `${dz >= 0 ? '+' : ''}${dz.toFixed(4)}`, change_raw: dz,
+    multiplier: `${mult >= 0 ? '+' : ''}${mult.toFixed(4)}`, multiplier_raw: mult,
+    stake: money(r.stake), stake_raw: r.stake,
+    returned: money(returned), returned_raw: returned,
+    profit: `${profit >= 0 ? '+' : ''}${money(profit)}`, profit_raw: profit,
+    outcome: profit >= 0 ? 'profit' : 'loss',
+    balance: money(S.money), balance_raw: S.money,
+    flat: Math.abs(dz) < 1e-6,
+    coherence: S.coherence.toFixed(3), was_coherence: before.toFixed(3),
+    drained: S.coherence < before - 0.3,
+  }) }]
 
   S.history.push(S.money)
   S.run = null
@@ -669,7 +666,7 @@ function endRound (S) {
   S.readoutIndex = 0
   if (S.money < 1 && S.regenUnits === 0) {
     S.expect = 'over'
-    return [{ kind: 'text', text: '**You are out of money. The walk ends here.**' }]
+    return [{ kind: 'text', text: t('scenes.broke') }]
   }
   const rnd = mulberry(S.seed + S.rounds * 7919)
   return [...sceneMain(S), ...offerWorlds(S, rnd)]
@@ -677,8 +674,8 @@ function endRound (S) {
 
 /** A deliberate wait has elapsed. */
 export function endHold (S) {
-  const t = tick(S)
-  const lines = tickLines(t).map(text)
+  const elapsed = tick(S)
+  const lines = tickLines(elapsed).map(text)
   S.expect = 'market'
   return [...lines,
     text(`Coherence now ${S.coherence.toFixed(3)}.`),

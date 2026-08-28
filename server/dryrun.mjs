@@ -11,6 +11,8 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 import './env.mjs'
+import { loadCopy } from './copy.mjs'
+loadCopy({ quiet: true })
 import * as game from './game.mjs'
 import { renderTraces, renderGatemap } from './render.mjs'
 import { timeInfo, describeReal } from './time.mjs'
@@ -84,8 +86,15 @@ await say(S, '1')
 const r = await say(S, '5')
 console.log(`\n  (the run would now step every ${game.STEP_MS / 1000}s — ` +
             'releasing them all immediately here)')
+// readouts ripen on the game clock, so wind it forward rather than spinning:
+// step() reports "nothing due yet" until time has actually passed
 let step = { done: false }
-while (!step.done) { step = game.step(S); show(step.emissions, S) }
+let guard = 0
+while (!step.done && guard++ < 40) {
+  if (S.run) S.run.startedMs -= game.READOUT_GAME_SECONDS * 1000
+  step = game.step(S)
+  show(step.emissions, S)
+}
 
 console.log(`\n  sent ${sent.text} text and ${sent.photo} photos ` +
             `(${(sent.bytes / 1024 | 0)}KB total)`)

@@ -1,0 +1,222 @@
+# =============================================================================
+# Office 4B, 6 Mackenzie Walk — every word the player reads.
+#
+# Edit this file freely. The bot reloads it on save; nothing needs restarting
+# and nobody's position is lost. If something here is wrong the message says so
+# rather than the round ending, and the console names the key.
+#
+# Values in {braces} are supplied by the engine, already formatted — {balance}
+# is "1,000G", {coherence} is "0.999". Each message below lists what it can use.
+#
+# When prose needs to bend there are escape hatches:
+#   {n} opportunit{n|s:y:ies}          singular or plural
+#   {#if recovering} (…){/if}          only when true
+#   {#if x}this{:else}that{/if}        one or the other
+#   {balance_raw|money}                re-format a raw number yourself
+#
+# Anywhere a list is given, one line is chosen at random.
+# Run `npm run copy-check` to confirm nothing is missing or misspelt.
+# =============================================================================
+
+scenes:
+
+  # {round} {coherence} {recovery} {recovering} {balance} {subscribed} {daily}
+  round: |
+    **Round {round}**
+
+    Your coherence: {coherence}{#if recovering} (recovery in {recovery}){/if}
+    Your balance: {balance}{#if subscribed}
+    Subscription: {daily} a game day{/if}
+
+  # no values
+  offer: Three worlds are open to you.
+
+  # {world} {opportunities} {complexity} {monopoly} {volatility} {disconnected}
+  entered: |
+    **{world}**
+    {opportunities} investment {opportunities|s:opportunity:opportunities} · {complexity}
+    {monopoly}% corporate monopolisation
+    {volatility}% expected volatility{#if disconnected}
+    _Holdings here do not all connect._{/if}
+
+  # {world} {progress} {total} {coherence} {balance} {last_chance}
+  investment: |
+    **{world}** — progress {progress}/{total}
+
+    Your coherence: {coherence}
+    Your balance: {balance}{#if last_chance}
+
+    _Last chance to act._{/if}
+
+  # {world} {target} {value} {change} {arrow}
+  readout: "**{world}** · q{target} @ {value} · {change} {arrow}"
+
+  # {stake} {target}
+  staking: "Staking {stake} on **q{target}**. Coupling now…"
+
+  # {target} {exit} {every}
+  position_open: "_Position open on **q{target}** until progress {exit}. Reports every {every}._"
+
+  # {target} {opened_at} {closed_at} {change} {multiplier} {stake} {returned}
+  # {profit} {balance} {outcome} {coherence} {was_coherence} {flat} {drained}
+  returns: |
+    **Returns**
+    q{target} opened at {opened_at}, closed at {closed_at}
+    Change {change} · multiplier {multiplier}
+
+    Staked {stake} · returned {returned} · **{outcome} {profit}**
+    Balance {balance}{#if flat}
+
+    _It never moved. Some of them never do._{/if}
+
+    Your coherence: {coherence} (was {was_coherence}){#if drained}
+    _q{target} was well worked over by the time you reached it._{/if}
+
+  # {world} {target} {exit}
+  take_profit: |
+    Coupling to **q{target}**. Where do you take profit?
+
+    You are at progress {progress}. Choose any point from {first} to {last} — the position closes there and the round ends.
+
+  # {balance}
+  ask_stake: "How much do you stake? (1 – {balance})"
+  # {last}
+  ask_target: "Couple to which holding? (0 – {last})"
+  # {first} {last}
+  ask_exit: "Pick a point from {first} to {last}."
+  ask_units: How many units?
+  # {units}
+  ask_units_sell: "How many units? (up to {units})"
+
+  left: You leave before anything is committed.
+  observed_all: You observed the whole circuit and staked nothing. Your qubit is untouched.
+  broke: "**You are out of money. The walk ends here.**"
+  nothing_to_stake: You have nothing left to stake.
+
+  # {recharge} {unit_cost} {coherence} {balance} {units} {daily} {recovery}
+  # {recovering} {runway} {has_runway}
+  marketplace: |
+    **The marketplace**
+    A spent qubit comes back on its own in {recharge}. Units make that faster: each adds a quarter again for {unit_cost} a game day, billed continuously.
+
+    Coherence {coherence} · balance {balance}
+    Units subscribed {units} · {daily} a game day{#if recovering}
+    Full again in {recovery}{/if}{#if has_runway}
+    Runway {runway} game days{/if}
+
+  # {rate} {daily}
+  subscribed: "Subscribed. Your rate is now {rate} at {daily} a game day."
+  unsubscribed: "Cancelled. Your rate is now {rate} at {daily} a game day."
+  nothing_to_sell: You have nothing to sell.
+
+  # {worlds} {skipped} {recharge}
+  welcome: |
+    **OFFICE 4B, 6 MACKENZIE WALK**
+
+    You carry one qubit. Each world is a market you may enter. Pick a moment, couple your qubit to one of theirs, and stake on it. You are paid the change in that holding, halved, times your stake.
+
+    Your qubit keeps whatever the world does to it. You keep exactly as much coherence as the holding you couple to had itself — couple to something already worked over and yours is too. It returns on its own in {recharge}.
+
+  # {elapsed} {gained}
+  time_passed: "{elapsed} passed: {gained}"
+  lapsed: You could not cover the subscription. The plan has lapsed.
+
+# One of these is chosen at random when a player writes during their own run.
+chatter:
+  - The circuit is mid-run. Nothing to decide until it settles.
+  - Noted. The gates do not care.
+  - Still running. You can only watch from here.
+  - The stake is placed. It plays out either way.
+
+prompts:
+  # {options}
+  unknown: "Type {options}."
+  help: |
+    **Commands**
+    `1` `2` `3` — enter a world · `m` — marketplace
+    `i` — invest · `o` — observe on · `l` — leave
+    `b` / `s` — buy or sell regeneration · `l` — leave the marketplace
+    When asked for a number, just type it.
+  say_something: Say something, or type **help**.
+  nothing_to_decide: Nothing to decide just now.
+
+buttons:
+  invest: Invest
+  observe: Observe
+  leave: Leave
+  marketplace: Marketplace
+  status: Status
+  buy: Buy
+  sell: Sell
+  all_stake: "All {amount}"
+  stake: "{amount}"
+  # {index} {world} {opportunities}
+  world: "{index}. {world} — {opportunities} opportunit{opportunities|s:y:ies}"
+  held: "{world} (position held)"
+  locked: "{world} (locked)"
+  # {readout}
+  exit_point: "progress {readout}"
+  exit_end: "{readout} (the end)"
+  qubit: "q{index}"
+  # {world} {until}
+  locked_toast: "Your money is committed to {world} until progress {until}."
+
+# The five bands a world's complexity is described by, easiest first.
+# Thresholds live in code; add or rename words here and the bands re-space.
+vocabulary:
+  complexity:
+    - simple
+    - moderate
+    - involved
+    - dense
+    - labyrinthine
+
+# Plot captions. These are drawn onto an image in a font with no box-drawing
+# glyphs or angle brackets, so keep them to plain ASCII.
+plots:
+  # {world} {gates} {layers}
+  gatemap_title: "{world} - {gates} gates over {layers} layers"
+  # {world} {progress}
+  traces_title: "{world} - progress {progress}"
+  # {world} {target} {change}
+  traces_running: "{world} - q{target} running {change}"
+  gatemap_legend: "[] 1-qubit  o-o 2-qubit  : readouts"
+  traces_legend: "<Z> -1 to +1 per row"
+
+# The places a player may be offered. Add, cut and rename freely.
+worlds:
+  - Powder Pram
+  - Rice Vision
+  - Tables Expert
+  - Tidy Memo
+  - Less Locker
+  - Bats Dawn
+  - Skinny Reds
+  - Sadly Trial
+  - Cooks Vrush
+  - Shut Cube
+  - Candle Master
+  - Pile Fixed
+  - Radio Farms
+  - Engine Ocean
+  - Curiosity Metro
+  - Tiger Eaten
+  - Closed Shots
+  - Closed Hits
+  - Lonely Jumps
+  - Open Online
+  - Fine Class
+  - Normal Dark
+  - Caller Lions
+  - Chin Lend
+  - Every Couches
+  - Liked Rounds
+  - Third Hooks
+  - Think Goes
+  - Spare Enjoyable
+  - Bland Chase
+  - Salsa Shade
+  - Wanted Gravy
+  - Social Note
+  - Audio Grace
+  - Limbs Send
