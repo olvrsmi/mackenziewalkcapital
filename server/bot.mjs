@@ -12,31 +12,9 @@
 //   MW_ALLOW             optional comma-separated Telegram user ids; if set,
 //                        only those may play
 
-import { readFileSync, existsSync } from 'node:fs'
-import { dirname, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import './env.mjs'   // must come first: it fills process.env for the rest
 
 import { Bot, InlineKeyboard, InputFile, GrammyError, HttpError } from 'grammy'
-
-// Node does not read .env on its own, and --env-file throws when the file is
-// missing, so load it here: present values win over an already-set environment
-// only if the environment has not set them.
-function loadEnv () {
-  const path = resolve(dirname(fileURLToPath(import.meta.url)), '.env')
-  if (!existsSync(path)) return
-  for (const raw of readFileSync(path, 'utf8').split('\n')) {
-    const line = raw.trim()
-    if (!line || line.startsWith('#')) continue
-    const eq = line.indexOf('=')
-    if (eq < 1) continue
-    const key = line.slice(0, eq).trim()
-    let val = line.slice(eq + 1).trim()
-    if ((val.startsWith('"') && val.endsWith('"')) ||
-        (val.startsWith("'") && val.endsWith("'"))) val = val.slice(1, -1)
-    if (process.env[key] === undefined) process.env[key] = val
-  }
-}
-loadEnv()
 
 import * as game from './game.mjs'
 import * as store from './sessions.mjs'
@@ -81,13 +59,18 @@ function keyboardFor (S) {
   const k = new InlineKeyboard()
   switch (S.expect) {
     case 'world': {
-      const names = (S.worlds || []).map((w, i) => [`${i + 1}. ${w.name}`, `${i + 1}`])
-      for (const [label, data] of names) k.text(label, data).row()
-      k.text('Marketplace', 'm').text('Wait', 't')
+      (S.worlds || []).forEach((w, i) => {
+        const n = w.info.n
+        k.text(`${i + 1}. ${w.name} — ${n} opportunit${n === 1 ? 'y' : 'ies'}`,
+               `${i + 1}`).row()
+      })
+      k.text('Marketplace', 'm')
       return k
     }
     case 'invest':
-      return k.text('Invest', 'i').text('Watch on', 'w')
+      k.text('Invest', 'i').text('Observe', 'o')
+      if (S.readoutIndex === 0) k.text('Leave', 'l')
+      return k
     case 'target': {
       const n = S.world?.info?.n || 0
       for (let q = 0; q < n; q++) {
@@ -127,8 +110,7 @@ function keyboardFor (S) {
       return k
     }
     case 'market':
-      return k.text('Buy', 'b').text('Sell', 's').row().text('Wait', 't')
-        .text('Leave', 'l')
+      return k.text('Buy', 'b').text('Sell', 's').text('Leave', 'l')
     case 'buy':
       return k.text('5', '5').text('10', '10').text('25', '25').text('50', '50')
     case 'sell':

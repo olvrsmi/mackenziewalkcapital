@@ -10,6 +10,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
+import './env.mjs'
 import * as game from './game.mjs'
 import { renderTraces, renderGatemap } from './render.mjs'
 import { timeInfo, describeReal } from './time.mjs'
@@ -25,13 +26,15 @@ const sent = { text: 0, photo: 0, bytes: 0 }
 // buttons are just the tokens a player could type
 function buttonsFor (S) {
   switch (S.expect) {
-    case 'world': return [...(S.worlds || []).map((w, i) => `${i + 1}·${w.name}`),
-                          'Marketplace', 'Wait']
-    case 'invest': return ['Invest', 'Watch on']
+    case 'world': return [...(S.worlds || []).map((w, i) =>
+      `${i + 1}. ${w.name} — ${w.info.n} opportunities`), 'Marketplace']
+    case 'invest': return S.readoutIndex === 0
+      ? ['Invest', 'Observe', 'Leave'] : ['Invest', 'Observe']
+    case 'exit': return ['readout n…', 'the end']
     case 'target': return Array.from({ length: S.world?.info?.n || 0 },
                                      (_, q) => `q${q}`)
     case 'stake': return ['100G', '250G', '500G', `All ${Math.floor(S.money)}G`]
-    case 'market': return ['Buy', 'Sell', 'Wait', 'Leave']
+    case 'market': return ['Buy', 'Sell', 'Leave']
     case 'buy': case 'sell': return ['5', '10', '25', '50']
     default: return null
   }
@@ -74,10 +77,11 @@ const S = game.newSession(7)
 show((await game.boot(S)).emissions, S)
 
 await say(S, '1')
-await say(S, 'w')
+await say(S, 'o')
 await say(S, 'i')
 await say(S, '250')
-const r = await say(S, '1')
+await say(S, '1')
+const r = await say(S, '5')
 console.log(`\n  (the run would now step every ${game.STEP_MS / 1000}s — ` +
             'releasing them all immediately here)')
 let step = { done: false }

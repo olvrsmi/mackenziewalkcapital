@@ -40,7 +40,8 @@ passes:
 |---|---|---|
 | `1` | 24 real hours | the intended cadence |
 | `3` | 8 real hours | three game days per real day |
-| `1440` | 60 real seconds | testing |
+| `60` | 24 real minutes | current setting — a readout a minute |
+| `1440` | 60 real seconds | fast testing |
 
 Coherence regenerates over about eight game hours and subscriptions bill per
 game day, so an overnight absence restores a meaningful amount and costs a
@@ -59,11 +60,17 @@ front of it later.
 | `/start` | begin, or start over |
 | `/status` `/market` `/time` `/help` | standing, marketplace, clock, commands |
 | `1` `2` `3` | enter one of the three worlds on offer |
-| `i` / `w` | invest at this readout, or watch on |
-| `b` `s` `t` `l` | buy, sell, wait, leave the marketplace |
+| `i` / `o` | invest at this readout, or observe on |
+| `l` | leave a world, before anything is committed |
+| `b` `s` `l` | buy, sell, leave the marketplace |
 
-Once a stake is placed the circuit runs one readout every 15 seconds
-(`MW_STEP_MS`), each arriving as its own message with a fresh plot.
+Once a stake is placed, readouts come due on the game clock — every
+`MW_READOUT_GAME_SECONDS` of game time — while reports post every `MW_POST_MS`
+of real time, aligned to the clock so every player hears at the same moment. One
+report can therefore cover several readouts, or none.
+
+You choose where to take profit when you open a position; it closes there and
+the round ends. Leaving a world is free only before you have observed anything.
 
 ## How the pieces fit
 
