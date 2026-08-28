@@ -6,6 +6,7 @@
 // back into the same short tokens a player could have typed.
 //
 //   TELEGRAM_BOT_TOKEN   required, from @BotFather
+//   TELEGRAM_BOT_TOKEN_LOCAL  used instead when MW_LOCAL=1 (npm run dev)
 //   MW_TIME_SCALE        game seconds per real second (see time.mjs)
 //   MW_PYTHON            interpreter for the model
 //   MW_STATE_DIR         where saved games live
@@ -22,12 +23,19 @@ import * as store from './sessions.mjs'
 import { renderTraces, renderGatemap } from './render.mjs'
 import { modelInfo } from './model.mjs'
 import { timeInfo, describeReal } from './time.mjs'
+import { logEvent, logFile } from './log.mjs'
 
-const TOKEN = process.env.TELEGRAM_BOT_TOKEN
+// Telegram allows one long poll per token and a second one evicts the first, so
+// a laptop and a server cannot share a bot. MW_LOCAL picks the development one.
+const LOCAL = process.env.MW_LOCAL === '1'
+const TOKEN_VAR = LOCAL ? 'TELEGRAM_BOT_TOKEN_LOCAL' : 'TELEGRAM_BOT_TOKEN'
+const TOKEN = process.env[TOKEN_VAR]
 if (!TOKEN) {
-  console.error('\n  TELEGRAM_BOT_TOKEN is not set.')
-  console.error('  Create a bot with @BotFather, then:')
-  console.error('    echo "TELEGRAM_BOT_TOKEN=..." > .env && npm start\n')
+  console.error(`\n  ${TOKEN_VAR} is not set.`)
+  console.error(LOCAL
+    ? '  npm run dev needs a second bot, so it does not fight the deployed one.'
+    : '  Create a bot with @BotFather, then put its token in .env.')
+  console.error('  See .env.example.\n')
   process.exit(1)
 }
 
@@ -149,6 +157,8 @@ async function sendWithRetry (fn, chatId, attempts = 3) {
     } catch (e) {
       const code = e?.error_code
       const permanent = code === 400 || code === 403 || code === 404
+      logEvent('send_failed', { chat: chatId, code, permanent,
+                                attempt: i, error: e?.description || e?.message })
       if (permanent || i >= attempts) throw e
       console.warn(`  ${chatId}: send failed (${e?.description || e?.message}), ` +
                    `retry ${i}/${attempts - 1} in ${wait}ms`)
@@ -172,12 +182,16 @@ async function deliver (chatId, emissions, S, { keyboard = true } = {}) {
         { parse_mode: 'HTML', reply_markup }), chatId)
     } else if (e.kind === 'traces' || e.kind === 'gatemap') {
       await bot.api.sendChatAction(chatId, 'upload_photo').catch(() => {})
+      const t0 = process.hrtime.bigint()
       const png = e.kind === 'traces'
         ? renderTraces({ n: e.n, z: e.z, upto: e.upto,
             totalReadouts: e.totalReadouts, target: e.target,
             interventionAt: e.interventionAt, title: e.title })
         : renderGatemap({ n: e.n, layers: e.layers, cuts: e.cuts,
             nLayers: e.nLayers, title: e.title })
+      logEvent('render', { chat: chatId, kind: e.kind, n: e.n,
+                           ms: Math.round(Number(process.hrtime.bigint() - t0) / 1e6),
+                           bytes: png.length })
       await sendWithRetry(() => bot.api.sendPhoto(chatId,
         new InputFile(png, 'plot.png'), { reply_markup }), chatId)
     }
@@ -198,6 +212,8 @@ function enqueue (chatId, job) {
     // and e.message alone gives nothing to debug from - log the stack, then say
     // so in the chat so they know to send something rather than sit waiting.
     console.error(`  ${chatId}: turn failed:`, e?.stack || e?.message || e)
+    logEvent('turn_failed', { chat: chatId, error: e?.message || String(e),
+                              stack: (e?.stack || '').split('\n').slice(0, 4).join(' | ') })
     await bot.api.sendMessage(chatId, t('scenes.turn_failed'),
                               { parse_mode: 'HTML' }).catch(() => {})
   })
@@ -210,8 +226,12 @@ function fireFor (chatId) {
     const S = await store.load(chatId)
     if (!S) return
     if (sched.kind === 'step') {
+      const t0 = process.hrtime.bigint()
       await game.hydrate(S)        // a resumed run ends by offering worlds
       const r = game.step(S)
+      logEvent('step', { chat: chatId, done: r.done,
+                        emissions: r.emissions.length,
+                        ms: Math.round(Number(process.hrtime.bigint() - t0) / 1e6) })
       let fatal = false
       try {
         await deliver(chatId, r.emissions, S)
@@ -254,6 +274,7 @@ async function handleToken (chatId, text) {
       return
     }
     await game.hydrate(S)          // re-hydrate after a restart
+    const t0 = process.hrtime.bigint()
     const r = await game.handle(S, text, async (early) => {
       await deliver(chatId, early, S, { keyboard: false })
       // the work that follows is a model call of about a second
@@ -262,6 +283,10 @@ async function handleToken (chatId, text) {
     await deliver(chatId, r.emissions, S)
     store.schedule(chatId, r.schedule, fireFor(chatId))
     store.ensureTimer(chatId, S, fireFor(chatId))
+    logEvent('turn', { chat: chatId, cmd: text.slice(0, 24),
+                      expect: S.expect, day: S.dayIndex, round: S.rounds,
+                      emissions: r.emissions.length,
+                      ms: Math.round(Number(process.hrtime.bigint() - t0) / 1e6) })
     await store.save(chatId, S)
   })
 }
@@ -367,8 +392,16 @@ console.log(`  model    ${modelInfo().python}`)
 console.log(`  time     ${clock.scale}x  ` +
             `(a game day is ${describeReal(clock.gameDaySeconds)})`)
 console.log(`  sessions ${resumed.sessions} saved, ${resumed.resumed} resumed`)
+console.log(`  bot      ${LOCAL ? 'development (MW_LOCAL=1)' : 'deployed'}`)
 if (ALLOW.length) console.log(`  allow    ${ALLOW.length} user id(s)`)
+console.log(`  log      ${logFile() || 'disabled'}`)
 console.log('  polling...\n')
+logEvent('boot', {
+  local: LOCAL, scale: clock.scale, gameDaySeconds: clock.gameDaySeconds,
+  postMs: game.POST_MS, readoutGameSeconds: game.READOUT_GAME_SECONDS,
+  sessions: resumed.sessions, resumed: resumed.resumed, allow: ALLOW.length,
+  node: process.version, pid: process.pid,
+})
 
 try {
   await bot.start({ onStart: (me) => console.log(`  connected as @${me.username}\n`) })
@@ -376,6 +409,8 @@ try {
   // Telegram allows exactly one long poll per token. A second instance does not
   // share the updates, it evicts the first - so this is nearly always a stray
   // process still running, and the game goes dead with no message to the player.
+  logEvent('polling_stopped', { code: e?.error_code,
+                                error: e?.description || e?.message || String(e) })
   if (e?.error_code === 409) {
     console.error('\n  409: another instance is already polling this token.' +
                   '\n  Stop it first:  pkill -f "node bot.mjs"\n')

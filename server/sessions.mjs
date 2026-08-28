@@ -10,12 +10,13 @@
 // which also means a schedule of null must never cancel a pending one, or a
 // player typing during their own run would stop it dead.
 
-import { readFile, writeFile, mkdir, readdir } from 'node:fs/promises'
+import { readFile, writeFile, rename, mkdir, readdir } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import * as game from './game.mjs'
+import { logEvent } from './log.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const STATE_DIR = process.env.MW_STATE_DIR || resolve(HERE, 'state')
@@ -71,6 +72,9 @@ export async function load (chatId) {
   if (existsSync(path)) {
     try {
       const d = JSON.parse(await readFile(path, 'utf8'))
+      if (d?.version !== 3) {
+        logEvent('session_lost', { chat: chatId, why: 'version', found: d?.version })
+      }
       if (d?.version === 3) {
         migrate(d.session)
         live.set(chatId, d.session)
@@ -78,6 +82,7 @@ export async function load (chatId) {
       }
     } catch (e) {
       console.warn(`  ${chatId}: unreadable session, starting fresh (${e.message})`)
+      logEvent('session_lost', { chat: chatId, why: 'unparseable', error: e.message })
     }
   }
   return null
@@ -87,7 +92,13 @@ export async function save (chatId, S) {
   live.set(chatId, S)
   const { allWorlds, ...rest } = S      // the world list is re-fetched on boot
   await mkdir(STATE_DIR, { recursive: true })
-  await writeFile(fileFor(chatId), JSON.stringify({ version: 3, session: rest }))
+  // Write beside the real file and rename over it. writeFile truncates in
+  // place, so a crash mid-write leaves a half-written save that will not parse
+  // - and the player silently starts a new game. rename is atomic on POSIX.
+  const path = fileFor(chatId)
+  const tmp = `${path}.${process.pid}.tmp`
+  await writeFile(tmp, JSON.stringify({ version: 3, session: rest }))
+  await rename(tmp, path)
 }
 
 export function put (chatId, S) { live.set(chatId, S) }

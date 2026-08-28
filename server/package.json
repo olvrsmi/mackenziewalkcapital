@@ -7,11 +7,13 @@
   "main": "bot.mjs",
   "scripts": {
     "start": "node bot.mjs",
-    "dev": "node --watch bot.mjs",
+    "dev": "MW_LOCAL=1 node --watch bot.mjs",
     "render-check": "node dryrun.mjs --png /tmp/mw-render",
     "dryrun": "node dryrun.mjs",
     "copy-check": "node copy-check.mjs",
-    "test": "node selftest.mjs"
+    "test": "node selftest.mjs",
+    "local": "MW_LOCAL=1 node bot.mjs",
+    "stats": "node stats.mjs"
   },
   "dependencies": {
     "@napi-rs/canvas": "^0.1.60",

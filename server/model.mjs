@@ -14,6 +14,8 @@ import { existsSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+import { timed } from './log.mjs'
+
 const HERE = dirname(fileURLToPath(import.meta.url))
 export const MODEL_DIR = resolve(HERE, '..', 'model')
 const ENGINE = join(MODEL_DIR, 'engine.py')
@@ -35,6 +37,12 @@ export function modelInfo () {
 }
 
 export async function callModel (request) {
+  // the model is the slowest thing in a turn and the only one that forks a
+  // process, so its timing is what sizing decisions rest on
+  return timed('model', { op: request.op, name: request.name }, () => runModel(request))
+}
+
+function runModel (request) {
   return new Promise((resolvePromise, reject) => {
     const child = spawn(PYTHON, [ENGINE], {
       cwd: MODEL_DIR,

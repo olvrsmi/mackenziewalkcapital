@@ -21,3 +21,6 @@ venv/
 # bot output
 server/bot.log
 server/.selftest-state/
+server/events.jsonl
+server/events.jsonl.1
+server/state/*.tmp
