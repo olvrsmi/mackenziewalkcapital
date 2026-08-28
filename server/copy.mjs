@@ -210,6 +210,15 @@ const FALLBACKS = {
   'buttons.marketplace': 'Marketplace',
 }
 
+/**
+ * The two things the game names over and over: a holding within a world, and a
+ * moment in its progress. Everything that writes "q1" or "t7" - messages,
+ * buttons, and the labels drawn onto the plots - goes through these, so the
+ * writer renames them in one place.
+ */
+export const holding = (index) => t('vocabulary.holding', { index })
+export const moment = (index) => t('vocabulary.moment', { index })
+
 export { lookup as _lookup, COPY as _copy }
 export const allKeys = () => {
   const out = []

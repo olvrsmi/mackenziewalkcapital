@@ -17,7 +17,7 @@ import './env.mjs'   // must come first: it fills process.env for the rest
 import { Bot, InlineKeyboard, InputFile, GrammyError, HttpError } from 'grammy'
 
 import * as game from './game.mjs'
-import { t, loadCopy, watchCopy, copyInfo } from './copy.mjs'
+import { t, loadCopy, watchCopy, copyInfo, holding, moment } from './copy.mjs'
 import * as store from './sessions.mjs'
 import { renderTraces, renderGatemap } from './render.mjs'
 import { modelInfo } from './model.mjs'
@@ -48,7 +48,12 @@ function toHtml (s) {
     .replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]))
     .replace(/`([^`]+)`/g, '<code>$1</code>')
     .replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>')
-    .replace(/(^|[^\w`])_([^_`]+)_(?![\w])/g, '$1<i>$2</i>')
+    // Emphasis must survive a holding name that contains an underscore. With
+    // e_1 in the text, a naive [^_]+ body stops at that underscore and the whole
+    // italic silently fails, leaving the delimiters on screen. So the body may
+    // contain an underscore when it is inside a word, and only an underscore
+    // followed by a non-word character can close the run.
+    .replace(/(^|[^\w`])_((?:[^_\n`]|_(?=\w))+)_(?![\w])/g, '$1<i>$2</i>')
 }
 
 // ---------------------------------------------------------------------------
@@ -75,7 +80,7 @@ function keyboardFor (S) {
     case 'target': {
       const n = S.world?.info?.n || 0
       for (let q = 0; q < n; q++) {
-        k.text(t('buttons.qubit', { index: q }), `${q}`)
+        k.text(t('buttons.qubit', { index: q, holding: holding(q) }), `${q}`)
         if ((q + 1) % 4 === 0 && q + 1 < n) k.row()
       }
       return k
@@ -84,7 +89,7 @@ function keyboardFor (S) {
       const last = (S.world?.readouts || 1) - 1
       for (let r = S.readoutIndex + 1; r <= last; r++) {
         k.text(t(r === last ? 'buttons.exit_end' : 'buttons.exit_point',
-                 { readout: r }), `${r}`)
+                 { readout: r, moment: moment(r) }), `${r}`)
         if ((r - S.readoutIndex) % 3 === 0 && r < last) k.row()
       }
       return k
@@ -153,11 +158,14 @@ async function sendWithRetry (fn, chatId, attempts = 3) {
   }
 }
 
-async function deliver (chatId, emissions, S) {
+async function deliver (chatId, emissions, S, { keyboard = true } = {}) {
   for (let i = 0; i < emissions.length; i++) {
     const e = emissions[i]
     const last = i === emissions.length - 1
-    const reply_markup = last ? keyboardFor(S) : undefined
+    // A progressive acknowledgement is sent while `expect` still describes the
+    // question just answered, so attaching a keyboard would repeat the buttons
+    // the player has only now used.
+    const reply_markup = keyboard && last ? keyboardFor(S) : undefined
 
     if (e.kind === 'text') {
       await sendWithRetry(() => bot.api.sendMessage(chatId, toHtml(e.text),
@@ -249,7 +257,7 @@ async function handleToken (chatId, text) {
       S.skipped = list.skipped.length
     }
     const r = await game.handle(S, text, async (early) => {
-      await deliver(chatId, early, S)
+      await deliver(chatId, early, S, { keyboard: false })
       // the work that follows is a model call of about a second
       await bot.api.sendChatAction(chatId, 'upload_photo').catch(() => {})
     })
@@ -303,7 +311,8 @@ bot.on('callback_query:data', async (ctx) => {
     const S = await store.load(chatId)
     await ctx.answerCallbackQuery({
       text: t('buttons.locked_toast', {
-        world: S?.world?.name || 'a world', until: S?.run?.exitAt ?? '?',
+        world: S?.world?.name || 'a world',
+        until: S?.run ? moment(S.run.exitAt) : '?',
       }),
       show_alert: false,
     }).catch(() => {})

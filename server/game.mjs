@@ -10,7 +10,7 @@
 
 import { callModel } from './model.mjs'
 import { gameSeconds, describeGame, describeReal, GAME_DAY_SECONDS } from './time.mjs'
-import { t, list } from './copy.mjs'
+import { t, list, holding, moment } from './copy.mjs'
 
 export const READOUTS = 8
 
@@ -34,7 +34,8 @@ export const REGEN_UNIT = BASE_REGEN * 0.25                // per game second
 export const UNIT_COST_PER_DAY = 1                         // G per game day
 export const DAY_SECONDS = GAME_DAY_SECONDS                // game seconds
 
-const money = (v) => `${Math.round(v).toLocaleString('en-GB')}G`
+// `|| 0` collapses negative zero, which would otherwise print as "-0G"
+const money = (v) => `${(Math.round(v) || 0).toLocaleString('en-GB')}G`
 
 /**
  * The technical facts of a circuit, said as a market would say them.
@@ -181,7 +182,7 @@ function tracesPanel (S, upto, opts = {}) {
     target: opts.target ?? null,
     interventionAt: opts.interventionAt ?? null,
     title: opts.title || t('plots.traces_title',
-      { world: S.world.name, progress: upto }),
+      { world: S.world.name, moment: moment(upto), progress: upto }),
   }
 }
 
@@ -253,6 +254,7 @@ export function sceneInvestment (S) {
   out.push(tracesPanel(S, k))
   out.push(text(t('scenes.investment', {
     world: S.world.name,
+    moment: moment(k),
     progress: k,
     total: S.world.readouts - 1,
     coherence: S.coherence.toFixed(3),
@@ -429,8 +431,9 @@ export async function handle (S, raw, emit = null) {
       S.expect = 'exit'
       const last = S.world.readouts - 1
       return out(text(t('scenes.take_profit', {
-        world: S.world.name, target: q, progress: S.readoutIndex,
-        first: S.readoutIndex + 1, last,
+        world: S.world.name, target: q, holding: holding(q),
+        moment: moment(S.readoutIndex), progress: S.readoutIndex,
+        first: moment(S.readoutIndex + 1), last: moment(last),
       })))
     }
 
@@ -447,7 +450,7 @@ export async function handle (S, raw, emit = null) {
       S.money -= stake
       if (emit) {
         preSent = true
-        await emit([...pre, text(t('scenes.staking', { stake: money(stake), target: q }))])
+        await emit([...pre, text(t('scenes.staking', { stake: money(stake), target: q, holding: holding(q) }))])
       }
       const play = await callModel({
         op: 'play', circuit: S.world.info.id, readouts: READOUTS,
@@ -459,9 +462,9 @@ export async function handle (S, raw, emit = null) {
       S.expect = 'running'
       return {
         emissions: [...(preSent ? [] : pre),
-          ...(preSent ? [] : [text(t('scenes.staking', { stake: money(stake), target: q }))]),
-          text(t('scenes.position_open',
-                 { target: q, exit: exitAt, every: postEvery() })),
+          ...(preSent ? [] : [text(t('scenes.staking', { stake: money(stake), target: q, holding: holding(q) }))]),
+          text(t('scenes.position_open', { target: q, holding: holding(q),
+                 exit: moment(exitAt), every: postEvery() })),
           stepPanel(S)],
         schedule: { kind: 'step', ms: msUntilNextPost() },
       }
@@ -542,7 +545,7 @@ function stepPanel (S) {
   return tracesPanel(S, k, {
     z: r.z, target: r.target, interventionAt: r.investAt,
     title: t('plots.traces_running', {
-      world: S.world.name, target: r.target,
+      world: S.world.name, target: r.target, holding: holding(r.target),
       change: pct((r.z[k][r.target] - z0) / 2),
     }),
   })
@@ -582,16 +585,18 @@ export function step (S, now = Date.now()) {
   if (due < from) {
     // nothing has come due; say so rather than going silent
     return {
-      emissions: [text(t('scenes.readout', {
-        world: S.world.name, target: r.target,
-        value: fmt(r.z[r.revealed][r.target]),
-        value_raw: r.z[r.revealed][r.target],
-        change: pct((r.z[r.revealed][r.target] -
-                     r.z[r.investAt][r.target]) / 2),
-        change_raw: (r.z[r.revealed][r.target] -
-                     r.z[r.investAt][r.target]) / 2,
-        arrow: '→',
-      }))],
+      emissions: [(() => {
+        const m = (r.z[r.revealed][r.target] - r.z[r.investAt][r.target]) / 2
+        return text(t('scenes.readout', {
+          world: S.world.name, target: r.target, holding: holding(r.target),
+          moment: moment(r.revealed),
+          value: fmt(r.z[r.revealed][r.target]),
+          value_raw: r.z[r.revealed][r.target],
+          change: pct(m), change_raw: m, arrow: '→',
+          pl: `${Math.round(r.stake * m) > 0 ? '+' : ''}${money(r.stake * m)}`,
+          pl_raw: r.stake * m,
+        }))
+      })()],
       schedule: { kind: 'step', ms: msUntilNextPost(now) },
       done: false,
     }
@@ -604,10 +609,14 @@ export function step (S, now = Date.now()) {
     const z = r.z[k][r.target]
     const prev = r.z[k - 1][r.target]
     const arrow = z > prev + 1e-6 ? '↗' : (z < prev - 1e-6 ? '↘' : '→')
+    const mult = (z - z0) / 2
     rows.push(t('scenes.readout', {
-      world: S.world.name, target: r.target,
+      world: S.world.name, target: r.target, holding: holding(r.target),
+      moment: moment(k),
       value: fmt(z), value_raw: z,
-      change: pct((z - z0) / 2), change_raw: (z - z0) / 2, arrow,
+      change: pct(mult), change_raw: mult, arrow,
+      pl: `${Math.round(r.stake * mult) > 0 ? '+' : ''}${money(r.stake * mult)}`,
+      pl_raw: r.stake * mult,
     }))
   }
   const emissions = [text(rows.join('\n')), stepPanel(S)]
@@ -639,9 +648,9 @@ function settle (S) {
   S.coherence = clamp(fr, 0, 1)
 
   const out = [{ kind: 'text', text: t('scenes.returns', {
-    target: r.target,
+    target: r.target, holding: holding(r.target),
     opened_at: z0.toFixed(4), closed_at: z1.toFixed(4),
-    exit: r.exitAt,
+    exit: moment(r.exitAt),
     change: `${dz >= 0 ? '+' : ''}${dz.toFixed(4)}`, change_raw: dz,
     multiplier: `${mult >= 0 ? '+' : ''}${mult.toFixed(4)}`, multiplier_raw: mult,
     stake: money(r.stake), stake_raw: r.stake,

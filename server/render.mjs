@@ -11,7 +11,7 @@
 
 import { createCanvas } from '@napi-rs/canvas'
 
-import { t } from './copy.mjs'
+import { t, holding } from './copy.mjs'
 
 const INK = '#FFFFFF'      // labels and values
 const DIM = '#AAAAAA'      // axis annotation
@@ -93,7 +93,7 @@ export function renderTraces ({ n, z, upto, totalReadouts, target = null,
       ctx.fillStyle = isTarget ? WARM : DIM
       ctx.font = `${isTarget ? 'bold ' : ''}12px ${MONO}`
       ctx.textAlign = 'right'
-      ctx.fillText(`q${q}`, padL - 10, yMid + 4)
+      ctx.fillText(holding(q), padL - 10, yMid + 4)
 
       const series = z.map((row) => row[q])
       ctx.strokeStyle = qcol(q)
@@ -153,7 +153,7 @@ export function renderGatemap ({ n, layers, cuts, nLayers, title }) {
       ctx.fillStyle = DIM
       ctx.font = `11px ${MONO}`
       ctx.textAlign = 'right'
-      ctx.fillText(`q${q}`, padL - 10, y(q) + 4)
+      ctx.fillText(holding(q), padL - 10, y(q) + 4)
     }
 
     ctx.strokeStyle = 'rgba(255,255,255,.35)'

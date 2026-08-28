@@ -41,27 +41,27 @@ scenes:
 
   # {world} {progress} {total} {coherence} {balance} {last_chance}
   investment: |
-    **{world}** — progress {progress}/{total}
+    **{world}** — {moment} of {total}
 
     Your coherence: {coherence}
     Your balance: {balance}{#if last_chance}
 
     _Last chance to act._{/if}
 
-  # {world} {target} {value} {change} {arrow}
-  readout: "**{world}** · q{target} @ {value} · {change} {arrow}"
+  # {world} {holding} {value} {change} {arrow} {pl}
+  readout: "**{world}** · {holding} @ {value} · {change} {arrow} P/L {pl}"
 
-  # {stake} {target}
-  staking: "Staking {stake} on **q{target}**. Coupling now…"
+  # {stake} {holding}
+  staking: "{stake} on **{holding}**. Making investment."
 
-  # {target} {exit} {every}
-  position_open: "_Position open on **q{target}** until progress {exit}. Reports every {every}._"
+  # {holding} {exit} {every}
+  position_open: "_Position open on **{holding}** until {exit}. Reports every {every}._"
 
   # {target} {opened_at} {closed_at} {change} {multiplier} {stake} {returned}
   # {profit} {balance} {outcome} {coherence} {was_coherence} {flat} {drained}
   returns: |
     **Returns**
-    q{target} opened at {opened_at}, closed at {closed_at}
+    {holding} opened at {opened_at}, closed at {closed_at}
     Change {change} · multiplier {multiplier}
 
     Staked {stake} · returned {returned} · **{outcome} {profit}**
@@ -70,13 +70,13 @@ scenes:
     _It never moved. Some of them never do._{/if}
 
     Your coherence: {coherence} (was {was_coherence}){#if drained}
-    _q{target} was well worked over by the time you reached it._{/if}
+    _{holding} was well worked over by the time you reached it._{/if}
 
   # {world} {target} {exit}
   take_profit: |
-    Coupling to **q{target}**. Where do you take profit?
+    Coupling to **{holding}**. Where do you take profit?
 
-    You are at progress {progress}. Choose any point from {first} to {last} — the position closes there and the round ends.
+    You are at {moment}. Choose any point from {first} to {last} — the position closes there and the round ends.
 
   # {balance}
   ask_stake: "How much do you stake? (1 – {balance})"
@@ -113,9 +113,19 @@ scenes:
   welcome: |
     **OFFICE 4B, 6 MACKENZIE WALK**
 
-    You carry one qubit. Each world is a market you may enter. Pick a moment, couple your qubit to one of theirs, and stake on it. You are paid the change in that holding, halved, times your stake.
+    Welcome to Mackenzie Walk Capital, London's premier neo-market-day-trading firm.
 
-    Your qubit keeps whatever the world does to it. You keep exactly as much coherence as the holding you couple to had itself — couple to something already worked over and yours is too. It returns on its own in {recharge}.
+    As a quick refresher, neo-markets are ultra-small markets opened up for investment as one of the early benefits of 2028's discovery of AGI. Initially focused on ecosystems and microclimates, with an as-yet unrealised hope that this could allow hedging against climate collapse, the increasing rate of cyborg-centaur-competition has lead to ever smaller markets being discovered. It’s estimated that market count doubles every 3 days, and this rate of doubling has itself doubled in the last month.
+
+    The current state-of-the art is quantum markets, impossibly small in scale. Here at Mackenzie Walk Capital, we pride ourselves on being the first to enter neo-markets, but you know that from the orientation. Despite what happened with the microclimate markets, we're confident that these are small enough that there shouldn't be any negative externalities, it's just a few electrons or whatever.
+
+    So, boot up your FOOMBERG™ terminal, this is where you find markets. As you're a newbie, it'll give you three to choose from and one possible investment-bit. 
+    
+    This means you can choose one entity in one market to invest in. Pick wisely. Spend some time observing the trajectories before making your decision, but don't wait too long. If the value of the entity is up when you exit, you make money, if it's down you lose it. Simple as that.
+    
+    When you invest, your investment-bit is coupled with the entity you choose and you have to wait for your exit point before you can make further calls.
+
+    Remember your investment bit will come back changed and you may need to wait for it to clean up ({recharge}).
 
   # {elapsed} {gained}
   time_passed: "{elapsed} passed: {gained}"
@@ -155,15 +165,21 @@ buttons:
   held: "{world} (position held)"
   locked: "{world} (locked)"
   # {readout}
-  exit_point: "progress {readout}"
-  exit_end: "{readout} (the end)"
-  qubit: "q{index}"
+  exit_point: "{moment}"
+  exit_end: "{moment} (the end)"
+  qubit: "{holding}"
   # {world} {until}
-  locked_toast: "Your money is committed to {world} until progress {until}."
+  locked_toast: "Your money is committed to {world} until {until}."
 
 # The five bands a world's complexity is described by, easiest first.
 # Thresholds live in code; add or rename words here and the bands re-space.
 vocabulary:
+  # How one holding inside a world is named, and how a moment in its progress
+  # is named. {index} counts from zero. Everything that shows either - messages,
+  # buttons, and the labels drawn onto the plots - uses these.
+  holding: "e_{index}"
+  moment: "t{index}"
+
   complexity:
     - simple
     - moderate
@@ -175,13 +191,14 @@ vocabulary:
 # glyphs or angle brackets, so keep them to plain ASCII.
 plots:
   # {world} {gates} {layers}
-  gatemap_title: "{world} - {gates} gates over {layers} layers"
+  gatemap_title: "{world}"
+  # from ^ - {gates} gates over {layers} layers
   # {world} {progress}
-  traces_title: "{world} - progress {progress}"
+  traces_title: "{world} - {moment}"
   # {world} {target} {change}
-  traces_running: "{world} - q{target} running {change}"
+  traces_running: "{world} - {holding} running {change}"
   gatemap_legend: "[] 1-qubit  o-o 2-qubit  : readouts"
-  traces_legend: "<Z> -1 to +1 per row"
+  traces_legend: "<value> -1 to +1 per row"
 
 # The places a player may be offered. Add, cut and rename freely.
 worlds:
