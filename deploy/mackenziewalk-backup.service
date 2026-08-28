@@ -1,0 +1,8 @@
+[Unit]
+Description=Back up Mackenzie Walk saved games
+
+[Service]
+Type=oneshot
+User=mw
+Group=mw
+ExecStart=/opt/mackenziewalk/deploy/backup.sh

@@ -1,0 +1,41 @@
+[Unit]
+Description=Mackenzie Walk Capital — Telegram bot
+After=network-online.target
+Wants=network-online.target
+# A crash loop should stop, not hammer Telegram. Five restarts in five minutes
+# and systemd gives up; `systemctl status` then says why.
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=mw
+Group=mw
+WorkingDirectory=/opt/mackenziewalk/server
+ExecStart=/usr/bin/node bot.mjs
+
+# The canvas library panics in Rust on bad input, which aborts the process
+# rather than raising something catchable - so restarting is the recovery.
+# Sessions mid-run are picked back up on boot.
+Restart=always
+RestartSec=5
+# 78 is EX_CONFIG: a missing token, a rejected token, or another instance
+# holding the long poll. None of those get better by trying again.
+RestartPreventExitStatus=78
+KillSignal=SIGTERM
+TimeoutStopSec=20
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=mackenziewalk
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=multi-user.target

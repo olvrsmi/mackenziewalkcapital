@@ -36,7 +36,7 @@ if (!TOKEN) {
     ? '  npm run dev needs a second bot, so it does not fight the deployed one.'
     : '  Create a bot with @BotFather, then put its token in .env.')
   console.error('  See .env.example.\n')
-  process.exit(1)
+  process.exit(78)          // EX_CONFIG: systemd will not restart on this
 }
 
 const ALLOW = (process.env.MW_ALLOW || '').split(',').map((s) => s.trim())
@@ -374,12 +374,15 @@ try {
   ])
 } catch (e) {
   // a wrong or revoked token is the likeliest first-run failure; say so plainly
-  const why = e?.error_code === 401 || /401/.test(String(e?.description || e))
-    ? 'Telegram rejected the token (401 Unauthorized). Check TELEGRAM_BOT_TOKEN ' +
+  const badToken = e?.error_code === 401 || /401/.test(String(e?.description || e))
+  const why = badToken
+    ? `Telegram rejected the token (401 Unauthorized). Check ${TOKEN_VAR} ` +
       'in server/.env against what @BotFather gave you.'
     : `Could not reach Telegram: ${e?.description || e?.message || e}`
   console.error(`\n  ${why}\n`)
-  process.exit(1)
+  // A rejected token is configuration and will not fix itself; an unreachable
+  // Telegram is worth retrying, so let systemd restart that one.
+  process.exit(badToken ? 78 : 1)
 }
 
 loadCopy()
@@ -420,5 +423,6 @@ try {
   } else {
     console.error(`\n  polling stopped: ${e?.description || e?.message || e}\n`)
   }
-  process.exit(1)
+  // Restarting into a token someone else holds just fights them, so stop.
+  process.exit(e?.error_code === 409 ? 78 : 1)
 }
