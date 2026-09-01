@@ -18,19 +18,19 @@ ssh root@your.box 'bash -s' < deploy/setup.sh
 ```
 
 That is self-contained: it clones this repository itself, installs Node 22 and
-a Python venv, creates an unprivileged `mw` user, installs both sets of
+a Python venv, creates an unprivileged `mw` user, installs the Node
 dependencies, registers the services, and turns on a firewall that allows only
 SSH.
 
-**It will stop the first time,** to print two SSH public keys. The QDrive
-engine lives in two private repositories — `moth-quantum/qdrive-api` and
-`moth-quantum/QDrive` — which cannot be vendored into a public repository, so
-the box clones them. GitHub refuses to reuse one deploy key across repositories,
-so each gets its own key and an ssh alias to select it. Add each printed key as
-a **read-only** deploy key under that repository's Settings → Deploy keys, then
-run the same command again; it picks up where it stopped.
+It does **not** install the QDrive engine, which lives in two private
+repositories — `moth-quantum/qdrive-api` and `moth-quantum/QDrive`. They cannot
+be vendored here, because this repository is public; and they are not cloned on
+the box either, because that would need deploy keys on repositories we do not
+administer. `deploy.sh` sends a checkout of each from a machine that already has
+them, which needs no permission anywhere. So `setup.sh` leaves a note and moves
+on, and the first `deploy.sh` completes the box.
 
-It then leaves an empty `.env` for you to fill in:
+It leaves an empty `.env` for you to fill in:
 
 ```
 ssh root@your.box nano /opt/mackenziewalk/app/server/.env
@@ -70,7 +70,7 @@ you exactly what your playtesters are on.
 ### If the repository goes private again
 
 `setup.sh` clones over HTTPS and will fail on a private repository. Either add
-a read-only **deploy key** to the box and set
+a read-only **deploy key** for *this* repository to the box and set
 `MW_REPO=git@github.com:olvrsmi/mackenziewalkcapital.git`, or use a fine-grained
 token in the URL. Nothing else changes.
 
@@ -185,9 +185,10 @@ CPU does.
 - **ARM (CAX-series) is untested.** `qiskit-aer` and `@napi-rs/canvas` both
   ship prebuilt binaries per architecture; `preflight.sh` checks the canvas
   one specifically. Cheaper, but verify before committing to it.
-- **Two private repositories** have to stay reachable. A revoked deploy key
-  breaks the next deploy, not the running game — `preflight.sh` checks the
-  engine source is still there.
+- **The engine is sent from a laptop, not fetched.** What runs on the box is
+  whatever was checked out in `MW_VENDOR_SRC` at deploy time, and nothing on
+  the box records which commit that was. `deploy.sh` prints it; if it matters,
+  keep the note.
 - **Python version.** The QDrive engine declares 3.12 or newer, and qiskit does
   not import at all on 3.10.7. Ubuntu 24.04 ships 3.12, which is fine, but
   `preflight.sh` checks the version *and* imports every module rather than

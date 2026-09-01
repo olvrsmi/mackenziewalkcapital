@@ -61,76 +61,17 @@ else
 fi
 
 say "Private dependencies"
-# The QDrive engine lives in two private repositories, and this one is public,
-# so neither can be vendored. GitHub refuses to reuse a deploy key across repos,
-# so each gets its own key plus an ssh alias to select it. Keys are generated
-# here and printed once; the clone below fails until they are registered.
+# QDrive and qdrive-api are private, and this repository is public, so neither is
+# vendored here. They are not cloned on the box either: that would need a deploy
+# key on repositories we do not administer. deploy.sh ships them from a machine
+# that already has them instead, which needs no permission anywhere.
 VENDOR="$ROOT/vendor"
-mkdir -p "$VENDOR" /root/.ssh
-chmod 700 /root/.ssh
-declare -A REPOS=( [qdrive-api]=moth-quantum/qdrive-api [QDrive]=moth-quantum/QDrive )
-missing=0
-for name in "${!REPOS[@]}"; do
-  key="/root/.ssh/deploy_${name}"
-  alias_host="gh-${name}"
-  if [ ! -f "$key" ]; then
-    ssh-keygen -q -t ed25519 -N "" -C "mackenziewalk box -> ${REPOS[$name]}" -f "$key"
-    missing=1
-  fi
-  if ! grep -q "^Host $alias_host\$" /root/.ssh/config 2>/dev/null; then
-    printf 'Host %s\n  HostName github.com\n  User git\n  IdentityFile %s\n  IdentitiesOnly yes\n\n' \
-      "$alias_host" "$key" >> /root/.ssh/config
-  fi
-  ssh-keyscan -t ed25519 github.com 2>/dev/null | grep -q . && \
-    ssh-keyscan -t ed25519 github.com 2>/dev/null >> /root/.ssh/known_hosts
-done
-sort -u -o /root/.ssh/known_hosts /root/.ssh/known_hosts 2>/dev/null || true
-chmod 600 /root/.ssh/config 2>/dev/null || true
-
-for name in "${!REPOS[@]}"; do
-  if ! ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new \
-       -T "git@gh-${name}" 2>&1 | grep -q "successfully authenticated"; then
-    note "deploy key for ${REPOS[$name]} is not registered yet. Add this as a"
-    note "read-only deploy key at https://github.com/${REPOS[$name]}/settings/keys :"
-    printf '\n'
-    cat "/root/.ssh/deploy_${name}.pub"
-    printf '\n'
-    missing=1
-  fi
-done
-if [ "$missing" -eq 1 ]; then
-  die "register the deploy key(s) above, then run this again"
-fi
-
-for name in "${!REPOS[@]}"; do
-  if [ -d "$VENDOR/$name/.git" ]; then
-    git -C "$VENDOR/$name" fetch --quiet origin && \
-      git -C "$VENDOR/$name" reset --quiet --hard origin/HEAD 2>/dev/null || true
-    note "$name updated"
-  else
-    git clone --quiet "git@gh-${name}:${REPOS[$name]}.git" "$VENDOR/$name" \
-      || die "could not clone ${REPOS[$name]} - is the deploy key registered?"
-    note "$name cloned"
-  fi
-done
-
-say "Code"
-# The clone stays owned by root and the game runs as an unprivileged user, so
-# the process cannot rewrite the code it is running. Data lives outside the
-# working tree entirely, which also keeps `git reset --hard` from ever being
-# near a saved game.
-if [ -d "$APP/.git" ]; then
-  git -C "$APP" remote set-url origin "$REPO"
-  git -C "$APP" fetch --quiet origin "$BRANCH"
-  git -C "$APP" reset --quiet --hard "origin/$BRANCH"
-  note "updated to $(git -C "$APP" log --oneline -1)"
+mkdir -p "$VENDOR"
+if [ -d "$VENDOR/QDrive/src" ]; then
+  note "engine already present"
 else
-  mkdir -p "$ROOT"
-  git clone --quiet --branch "$BRANCH" "$REPO" "$APP" \
-    || die "could not clone $REPO - is it public, or does this box need a key?"
-  note "cloned $(git -C "$APP" log --oneline -1)"
+  note "no engine yet - deploy.sh sends it"
 fi
-chown -R root:root "$APP"
 
 say "Data"
 for d in state logs backups; do
@@ -182,7 +123,11 @@ say "Dependencies"
 # box needs GitHub access only in the step above.
 "$APP/model/.venv/bin/pip" install -q \
   $(grep -vE '^\s*(#|$)|^qdrive @' "$APP/model/requirements.txt")
-"$APP/model/.venv/bin/pip" install -q -e "$VENDOR/QDrive"
+if [ -d "$VENDOR/QDrive/src" ]; then
+  "$APP/model/.venv/bin/pip" install -q -e "$VENDOR/QDrive"
+else
+  note "QDrive not installed yet - deploy.sh will"
+fi
 # Compile now, as root, so the read-only runtime never tries to write bytecode.
 "$APP/model/.venv/bin/python3" -m compileall -q "$APP/model" >/dev/null 2>&1 || true
 ( cd "$APP/server" && npm ci --omit=dev --silent )

@@ -81,7 +81,7 @@ SRC=$(from_env MW_QDRIVE_API_SRC); SRC=${SRC:-$MODEL/vendor/qdrive-api/src}
 if [ -f "$SRC/engine.py" ] && [ -f "$SRC/backend.py" ]; then
   ok "QDrive engine source at $SRC"
 else
-  bad "no QDrive engine at $SRC - setup.sh clones it; is the deploy key still registered?"
+  bad "no QDrive engine at $SRC - deploy.sh sends it; run a deploy without --no-engine"
 fi
 
 # --- the model actually answering -------------------------------------------

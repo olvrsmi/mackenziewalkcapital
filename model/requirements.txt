@@ -1,8 +1,10 @@
 # The QDrive engine, driven by model/engine.py.
 #
 # Both repositories are private and this one is public, so neither is vendored
-# here the way QuantumGraph was. deploy/setup.sh clones them beside the app with
-# a read-only deploy key; MW_QDRIVE_API_SRC then points at qdrive-api's src/.
+# here the way QuantumGraph was - and neither is cloned on the box, which would
+# need deploy keys on repositories we do not administer. deploy.sh sends a
+# checkout of each from a machine that already has them, into vendor/ beside the
+# app; MW_QDRIVE_API_SRC then points at qdrive-api's src/.
 #
 #   pip install -r requirements.txt
 #   export MW_QDRIVE_API_SRC=/path/to/qdrive-api/src
@@ -19,7 +21,10 @@ pydantic>=2.13.4
 # qiskit does not ship the QASM3 *parser*.
 qiskit-qasm3-import>=0.6.0
 
-# Moth's QDrive. Private: needs a deploy key on the box, or GitHub access
+# Moth's QDrive. Private, and not installed from GitHub on the box: that would
+# need a deploy key on a repository we do not administer. deploy.sh sends a
+# checkout from a machine that already has one, and installs it from there.
+# This line is for local development, where you do have access
 # locally. Do NOT `pip install qdrive` - that PyPI name is an unrelated QHarbor
 # library which imports cleanly while being entirely the wrong thing.
 qdrive @ git+ssh://git@github.com/moth-quantum/QDrive.git@main

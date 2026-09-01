@@ -10,20 +10,29 @@
 # always a commit you can name. The cost is that unpushed work cannot be
 # deployed - which is checked here rather than discovered afterwards.
 #
+# The QDrive engine is the exception. It lives in two private repositories that
+# cannot be cloned on the box - that would need deploy keys on repositories we do
+# not administer - and cannot be vendored here, because this repository is
+# public. So it is sent from this machine, which already has both, and is pinned
+# to whatever is checked out locally. MW_VENDOR_SRC says where they are.
+#
 #   --ref X      deploy a tag, branch or commit instead of the current branch
 #   --no-deps    skip the installs, when only code changed
+#   --no-engine  skip sending the engine, when only game code changed
 #   --dry-run    say what would happen, change nothing
 
 set -euo pipefail
 
 ROOT_DIR=/opt/mackenziewalk
 APP="$ROOT_DIR/app"
-HOST=""; REF=""; DEPS=1; DRY=0
+HOST=""; REF=""; DEPS=1; DRY=0; ENGINE=1
+VENDOR_SRC=${MW_VENDOR_SRC:-}
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --ref) REF=${2:-}; shift 2 ;;
     --no-deps) DEPS=0; shift ;;
+    --no-engine) ENGINE=0; shift ;;
     --dry-run|-n) DRY=1; shift ;;
     -*) echo "unknown option $1" >&2; exit 2 ;;
     *) HOST="$1"; shift ;;
@@ -66,7 +75,7 @@ fi
 
 if [ "$DRY" -eq 1 ]; then
   say "Dry run"
-  note "would move $HOST to $REF, ${DEPS:+re}install dependencies, and restart"
+  note "would move $HOST to $REF, $([ "$ENGINE" -eq 1 ] && echo "send the engine, ")$([ "$DEPS" -eq 1 ] && echo "install dependencies, ")and restart"
   exit 0
 fi
 
@@ -78,19 +87,35 @@ ssh "$HOST" "set -e
   git reset --quiet --hard '$REF' 2>/dev/null || git reset --quiet --hard 'origin/$REF'
   git log --oneline -1" | sed 's/^/    /'
 
+if [ "$ENGINE" -eq 1 ]; then
+  say "Engine"
+  # Both clones sit next to this repository by default. Only src/ and the
+  # packaging travel: not .git - which on these clones holds a GitHub token in
+  # its remote URL - and not the notebooks, tests or virtualenvs.
+  SRC=${VENDOR_SRC:-$(cd .. && pwd)/coupling-playground}
+  for name in QDrive qdrive-api; do
+    [ -d "$SRC/$name/src" ] || die "no $name at $SRC/$name.
+         Set MW_VENDOR_SRC to the directory holding QDrive/ and qdrive-api/."
+  done
+  ssh "$HOST" "mkdir -p $ROOT_DIR/vendor"
+  for name in QDrive qdrive-api; do
+    rsync -az --delete \
+      --exclude '.git/' --exclude '.venv/' --exclude '__pycache__/' \
+      --exclude '*.pyc' --exclude 'tests/' --exclude 'notebooks/' \
+      --exclude 'scratchbook/' --exclude 'showcase/' --exclude '.DS_Store' \
+      "$SRC/$name/" "$HOST:$ROOT_DIR/vendor/$name/"
+    note "$name sent ($(git -C "$SRC/$name" log --oneline -1 2>/dev/null || echo 'not a checkout'))"
+  done
+  # belt and braces: the token must not reach the box even if an exclude changes
+  ssh "$HOST" "! find $ROOT_DIR/vendor -name '.git' -maxdepth 3 | grep -q . " \
+    || die "a .git directory reached the box - it carries a credential, remove it"
+fi
+
 if [ "$DEPS" -eq 1 ]; then
   say "Dependencies"
   # Both are quiet when there is nothing to do. The python one reaches GitHub:
   # pairwise-tomography installs from a git URL.
   ssh "$HOST" "set -e
-    cd $ROOT_DIR
-    # the private engine clones are outside the app, so a deploy has to move
-    # them too or the game runs new code against an old engine
-    for name in qdrive-api QDrive; do
-      [ -d vendor/\$name/.git ] || continue
-      git -C vendor/\$name fetch --quiet origin
-      git -C vendor/\$name reset --quiet --hard origin/HEAD 2>/dev/null || true
-    done
     cd $APP
     model/.venv/bin/pip install -q \$(grep -vE '^[[:space:]]*(#|\$)|^qdrive @' model/requirements.txt)
     model/.venv/bin/pip install -q -e $ROOT_DIR/vendor/QDrive
