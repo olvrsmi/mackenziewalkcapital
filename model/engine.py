@@ -97,7 +97,19 @@ def _load_qdrive_engine():
     plain `import engine` is a coin toss between them depending on how this was
     invoked. Loading it from an explicit path under an explicit name settles it.
     """
-    src = os.environ.get('MW_QDRIVE_API_SRC') or os.path.join(HERE, 'vendor', 'qdrive-api', 'src')
+    src = os.environ.get('MW_QDRIVE_API_SRC')
+    if not src:
+        # Deployed, the engine sits beside the app rather than inside it: the app
+        # is a git clone the service cannot write, and the engine is sent
+        # separately. Both places are tried so a checkout laid out either way
+        # works without setting anything.
+        for candidate in (os.path.join(HERE, '..', '..', 'vendor', 'qdrive-api', 'src'),
+                          os.path.join(HERE, 'vendor', 'qdrive-api', 'src')):
+            if os.path.isdir(candidate):
+                src = candidate
+                break
+        else:
+            src = os.path.join(HERE, '..', '..', 'vendor', 'qdrive-api', 'src')
     src = os.path.abspath(os.path.expanduser(src))
     if not os.path.isdir(src):
         raise Unusable(

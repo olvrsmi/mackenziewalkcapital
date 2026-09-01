@@ -91,7 +91,7 @@ fi
 
 # The engine source is cloned, not vendored, so a deploy that lost its GitHub
 # access leaves the venv fine and this directory missing.
-SRC=$(from_env MW_QDRIVE_API_SRC); SRC=${SRC:-$MODEL/vendor/qdrive-api/src}
+SRC=$(from_env MW_QDRIVE_API_SRC); SRC=${SRC:-$ROOT/vendor/qdrive-api/src}
 if [ -f "$SRC/engine.py" ] && [ -f "$SRC/backend.py" ]; then
   ok "QDrive engine source at $SRC"
 else
@@ -100,14 +100,20 @@ fi
 
 # --- the model actually answering -------------------------------------------
 if [ -x "$VENV" ] && [ -f "$MODEL/engine.py" ]; then
-  out=$(cd "$MODEL" && MW_QDRIVE_API_SRC="$SRC" echo '{"op":"worlds"}' \
+  # Deliberately not `worlds`: that answers from the committed character cache
+  # without ever starting the engine, so it passes on a box where no world can
+  # actually be played. Scout runs it.
+  spec=$(cd "$MODEL" && ls specs/*.json 2>/dev/null | grep -v '_stats' | head -1)
+  spec=$(basename "${spec:-none.json}" .json)
+  out=$(cd "$MODEL" && MW_QDRIVE_API_SRC="$SRC" \
+        printf '{"op":"scout","circuit":"%s","readouts":2}' "$spec" \
         | (cd "$MODEL" && MW_QDRIVE_API_SRC="$SRC" limited 300 "$VENV" engine.py 2>/dev/null))
   n=$(printf '%s' "$out" | node -e '
     let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{
-      try{const j=JSON.parse(s);process.stdout.write(String(j.ok?j.worlds.length:0))}
+      try{const j=JSON.parse(s);process.stdout.write(String(j.ok?j.z.length:0))}
       catch{process.stdout.write("0")}})' 2>/dev/null)
-  if [ "${n:-0}" -gt 0 ]; then ok "model answers - $n worlds playable"
-  else bad "the model returned nothing usable"; fi
+  if [ "${n:-0}" -gt 0 ]; then ok "the engine runs - $spec stepped $n times"
+  else bad "the engine did not run - a world cannot be played"; fi
 else
   skipf "model call (no venv)"
 fi

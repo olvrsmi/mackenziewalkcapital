@@ -102,6 +102,18 @@ say "Configuration"
 ENV_FILE="$APP/server/.env"
 if [ -f "$ENV_FILE" ]; then
   note ".env already present, left alone"
+  # ...except for settings it predates. An .env written before a setting existed
+  # leaves the service running on the default, and the default for where the
+  # engine lives was wrong in a way nothing noticed until a world was entered.
+  # Only ever appends; an existing value is never touched.
+  ensure () {
+    grep -qE "^[[:space:]]*$1=" "$ENV_FILE" && return 0
+    printf '\n# added by setup.sh\n%s=%s\n' "$1" "$2" >> "$ENV_FILE"
+    note "added $1"
+  }
+  ensure MW_QDRIVE_API_SRC "$ROOT/vendor/qdrive-api/src"
+  ensure MW_STATE_DIR "$ROOT/state"
+  ensure MW_LOG_FILE "$ROOT/logs/events.jsonl"
 else
   cat > "$ENV_FILE" <<ENVEOF
 # The deployed bot, from @BotFather. Keep the development bot's token OUT of

@@ -31,6 +31,7 @@ HOST=""; REF=""; DEPS=1; DRY=0; ENGINE=1
 IDENTITY=${MW_SSH_KEY:-}
 VENDOR_SRC=${MW_VENDOR_SRC:-}
 
+ARGV="$*"; ARGC=$#
 while [ $# -gt 0 ]; do
   case "$1" in
     -i|--identity) IDENTITY=${2:-}; shift 2 ;;
@@ -48,7 +49,7 @@ say () { printf '\n  \033[1m%s\033[0m\n' "$*"; }
 note () { printf '    %s\n' "$*"; }
 die () { printf '\n  ERROR: %s\n\n' "$*" >&2; exit 1; }
 
-[ -n "$HOST" ] || die "no host. ./deploy/deploy.sh root@your.box"
+
 
 # One transport, shared by ssh and rsync, so a key given here reaches both. With
 # IdentitiesOnly the agent cannot quietly offer a different key and leave you
@@ -71,6 +72,14 @@ if [ -n "$IDENTITY" ]; then
   SSH+=(-i "$IDENTITY" -o IdentitiesOnly=yes)
 fi
 RSH="${SSH[*]}"
+
+if [ -z "$HOST" ]; then
+  die "no host.
+         ./deploy/deploy.sh [-i ~/.ssh/key] root@your.box
+         Saw $ARGC argument(s): $ARGV. A host is anything not
+         starting with -, so an option that swallowed it (-i without a path,
+         --ref without a value) leaves none. MW_HOST=${MW_HOST:-<unset>}."
+fi
 
 cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
 git rev-parse --git-dir >/dev/null 2>&1 || die "not a git checkout"
