@@ -14,7 +14,7 @@ Create the box (Ubuntu 24.04, **CX22** — 2 vCPU / 4GB / 40GB is comfortable;
 2GB works but leaves nothing spare when several people act at once), then:
 
 ```
-ssh root@your.box 'bash -s' < deploy/setup.sh
+ssh -i ~/.ssh/your-key root@your.box 'bash -s' < deploy/setup.sh
 ```
 
 That is self-contained: it clones this repository itself, installs Node 22 and
@@ -33,15 +33,15 @@ on, and the first `deploy.sh` completes the box.
 It leaves an empty `.env` for you to fill in:
 
 ```
-ssh root@your.box nano /opt/mackenziewalk/app/server/.env
+ssh -i ~/.ssh/your-key root@your.box nano /opt/mackenziewalk/app/server/.env
 ```
 
 Put the **deployed** bot's token in it — not the development one. Then check
 the box before trusting it, and start:
 
 ```
-ssh root@your.box /opt/mackenziewalk/app/deploy/preflight.sh
-ssh root@your.box systemctl start mackenziewalk
+ssh -i ~/.ssh/your-key root@your.box /opt/mackenziewalk/app/deploy/preflight.sh
+ssh -i ~/.ssh/your-key root@your.box systemctl start mackenziewalk
 ```
 
 ## Every time after
@@ -50,7 +50,7 @@ The box pulls from GitHub, so **push first**:
 
 ```
 git push
-./deploy/deploy.sh root@your.box
+./deploy/deploy.sh -i ~/.ssh/your-key root@your.box
 ```
 
 That moves the box to your current branch's head, reinstalls anything whose
@@ -59,9 +59,11 @@ status. It refuses to run if what you are asking for is not on GitHub yet,
 rather than silently deploying something older.
 
 ```
-./deploy/deploy.sh root@your.box --ref v0.2   a tag, branch or commit
-./deploy/deploy.sh root@your.box --no-deps    only code changed
-./deploy/deploy.sh root@your.box --dry-run    say what would happen
+-i PATH        ssh identity file, same as ssh's own (or set MW_SSH_KEY)
+--ref v0.2     a tag, branch or commit instead of the current branch
+--no-deps      only game code changed, skip the installs
+--no-engine    only game code changed, skip sending QDrive
+--dry-run      say what would happen, change nothing
 ```
 
 Because the box is always at a named commit, `git log --oneline -1` there tells
@@ -73,6 +75,21 @@ you exactly what your playtesters are on.
 a read-only **deploy key** for *this* repository to the box and set
 `MW_REPO=git@github.com:olvrsmi/mackenziewalkcapital.git`, or use a fine-grained
 token in the URL. Nothing else changes.
+
+### Keys
+
+Every command here takes `-i`, the same as `ssh` itself. Set `MW_SSH_KEY` once
+instead if you would rather not repeat it:
+
+```
+export MW_SSH_KEY=~/.ssh/your-key
+./deploy/deploy.sh root@your.box
+```
+
+`deploy.sh` passes it to both ssh and rsync, with `IdentitiesOnly` so an agent
+cannot quietly authenticate with a different key and leave you unsure which one
+worked. It checks the file exists and is mode 600 or 400 before starting, rather
+than letting ssh refuse it eight commands in.
 
 ## Two bots, always
 
@@ -112,9 +129,9 @@ certificate, and no web server.
 ## Watching it
 
 ```
-ssh root@your.box journalctl -u mackenziewalk -f          # live console
-ssh root@your.box systemctl status mackenziewalk          # up? since when?
-ssh root@your.box 'cd /opt/mackenziewalk/app/server && npm run stats -- --file /opt/mackenziewalk/logs/events.jsonl'
+ssh -i $MW_SSH_KEY root@your.box journalctl -u mackenziewalk -f          # live console
+ssh -i $MW_SSH_KEY root@your.box systemctl status mackenziewalk          # up? since when?
+ssh -i $MW_SSH_KEY root@your.box 'cd /opt/mackenziewalk/app/server && npm run stats -- --file /opt/mackenziewalk/logs/events.jsonl'
 ```
 
 `npm run stats` reports p50/p95 for every model call, render and turn, plus the
@@ -122,7 +139,7 @@ peak number of Python processes alive at once — the figure that sizes the box.
 It takes `--since 2h`. To read a log here instead:
 
 ```
-scp root@your.box:/opt/mackenziewalk/logs/events.jsonl /tmp/box.jsonl
+scp -i $MW_SSH_KEY root@your.box:/opt/mackenziewalk/logs/events.jsonl /tmp/box.jsonl
 npm --prefix server run stats -- --file /tmp/box.jsonl
 ```
 

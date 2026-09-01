@@ -2,9 +2,10 @@
 #
 # deploy.sh - move the box to a commit and restart. Run from a laptop.
 #
-#   ./deploy/deploy.sh root@your.box              current branch, latest
-#   ./deploy/deploy.sh root@your.box --ref v0.2    a tag or commit
-#   MW_HOST=root@your.box ./deploy/deploy.sh       if you tire of typing it
+#   ./deploy/deploy.sh root@your.box                     current branch, latest
+#   ./deploy/deploy.sh -i ~/.ssh/key root@your.box       with an ssh key
+#   MW_HOST=root@your.box MW_SSH_KEY=~/.ssh/key \
+#     ./deploy/deploy.sh                                 if you tire of typing them
 #
 # The box pulls from GitHub rather than being pushed to, so what runs there is
 # always a commit you can name. The cost is that unpushed work cannot be
@@ -16,6 +17,7 @@
 # public. So it is sent from this machine, which already has both, and is pinned
 # to whatever is checked out locally. MW_VENDOR_SRC says where they are.
 #
+#   -i PATH      ssh identity file, as `ssh -i` (or set MW_SSH_KEY)
 #   --ref X      deploy a tag, branch or commit instead of the current branch
 #   --no-deps    skip the installs, when only code changed
 #   --no-engine  skip sending the engine, when only game code changed
@@ -26,10 +28,12 @@ set -euo pipefail
 ROOT_DIR=/opt/mackenziewalk
 APP="$ROOT_DIR/app"
 HOST=""; REF=""; DEPS=1; DRY=0; ENGINE=1
+IDENTITY=${MW_SSH_KEY:-}
 VENDOR_SRC=${MW_VENDOR_SRC:-}
 
 while [ $# -gt 0 ]; do
   case "$1" in
+    -i|--identity) IDENTITY=${2:-}; shift 2 ;;
     --ref) REF=${2:-}; shift 2 ;;
     --no-deps) DEPS=0; shift ;;
     --no-engine) ENGINE=0; shift ;;
@@ -45,6 +49,28 @@ note () { printf '    %s\n' "$*"; }
 die () { printf '\n  ERROR: %s\n\n' "$*" >&2; exit 1; }
 
 [ -n "$HOST" ] || die "no host. ./deploy/deploy.sh root@your.box"
+
+# One transport, shared by ssh and rsync, so a key given here reaches both. With
+# IdentitiesOnly the agent cannot quietly offer a different key and leave you
+# wondering which one actually authenticated.
+SSH=(ssh)
+if [ -n "$IDENTITY" ]; then
+  IDENTITY=${IDENTITY/#\~/$HOME}
+  [ -f "$IDENTITY" ] || die "no such key: $IDENTITY"
+  perms=$(stat -f '%Lp' "$IDENTITY" 2>/dev/null || stat -c '%a' "$IDENTITY" 2>/dev/null)
+  case "$perms" in
+    600|400) ;;
+    *) die "$IDENTITY is mode $perms; ssh will refuse it. chmod 600 $IDENTITY" ;;
+  esac
+  # rsync's -e is split on whitespace by rsync itself, so a path with a space in
+  # it would arrive as two arguments and fail somewhere much less obvious.
+  case "$IDENTITY" in
+    *[[:space:]]*) die "$IDENTITY has a space in it; rsync cannot carry that
+         through -e. Move the key somewhere without one." ;;
+  esac
+  SSH+=(-i "$IDENTITY" -o IdentitiesOnly=yes)
+fi
+RSH="${SSH[*]}"
 
 cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
 git rev-parse --git-dir >/dev/null 2>&1 || die "not a git checkout"
@@ -81,7 +107,7 @@ fi
 
 # --- move the box -----------------------------------------------------------
 say "Updating $HOST"
-ssh "$HOST" "set -e
+"${SSH[@]}" "$HOST" "set -e
   cd $APP
   git fetch --quiet --tags origin
   git reset --quiet --hard '$REF' 2>/dev/null || git reset --quiet --hard 'origin/$REF'
@@ -97,9 +123,9 @@ if [ "$ENGINE" -eq 1 ]; then
     [ -d "$SRC/$name/src" ] || die "no $name at $SRC/$name.
          Set MW_VENDOR_SRC to the directory holding QDrive/ and qdrive-api/."
   done
-  ssh "$HOST" "mkdir -p $ROOT_DIR/vendor"
+  "${SSH[@]}" "$HOST" "mkdir -p $ROOT_DIR/vendor"
   for name in QDrive qdrive-api; do
-    rsync -az --delete \
+    rsync -az --delete -e "$RSH" \
       --exclude '.git/' --exclude '.venv/' --exclude '__pycache__/' \
       --exclude '*.pyc' --exclude 'tests/' --exclude 'notebooks/' \
       --exclude 'scratchbook/' --exclude 'showcase/' --exclude '.DS_Store' \
@@ -107,7 +133,7 @@ if [ "$ENGINE" -eq 1 ]; then
     note "$name sent ($(git -C "$SRC/$name" log --oneline -1 2>/dev/null || echo 'not a checkout'))"
   done
   # belt and braces: the token must not reach the box even if an exclude changes
-  ssh "$HOST" "! find $ROOT_DIR/vendor -name '.git' -maxdepth 3 | grep -q . " \
+  "${SSH[@]}" "$HOST" "! find $ROOT_DIR/vendor -name '.git' -maxdepth 3 | grep -q . " \
     || die "a .git directory reached the box - it carries a credential, remove it"
 fi
 
@@ -115,7 +141,7 @@ if [ "$DEPS" -eq 1 ]; then
   say "Dependencies"
   # Both are quiet when there is nothing to do. The python one reaches GitHub:
   # pairwise-tomography installs from a git URL.
-  ssh "$HOST" "set -e
+  "${SSH[@]}" "$HOST" "set -e
     cd $APP
     model/.venv/bin/pip install -q -r model/requirements.txt
     model/.venv/bin/pip install -q -e $ROOT_DIR/vendor/QDrive
@@ -131,7 +157,7 @@ say "Smoke test"
 # Runs the model exactly as the service will, engine location and all. On a
 # warm cache this reads the specifications without loading qiskit at all, so it
 # is nearly free; on a cold one it is the thing that proves the engine works.
-n=$(ssh "$HOST" "cd $APP/model && MW_QDRIVE_API_SRC=$ROOT_DIR/vendor/qdrive-api/src \
+n=$("${SSH[@]}" "$HOST" "cd $APP/model && MW_QDRIVE_API_SRC=$ROOT_DIR/vendor/qdrive-api/src \
       sh -c 'echo {\"op\":\"worlds\"} | .venv/bin/python3 engine.py'" 2>/dev/null \
     | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{
         try{const j=JSON.parse(s);process.stdout.write(String(j.ok?j.worlds.length:0))}
@@ -141,9 +167,9 @@ note "$n worlds playable"
 
 say "Restarting"
 # One poller per token: stop before start, never overlap.
-ssh "$HOST" "systemctl restart mackenziewalk && sleep 6 && systemctl is-active mackenziewalk" \
+"${SSH[@]}" "$HOST" "systemctl restart mackenziewalk && sleep 6 && systemctl is-active mackenziewalk" \
   >/dev/null || die "the service did not come up. ssh $HOST journalctl -u mackenziewalk -n 40"
 
 say "Status"
-ssh "$HOST" "systemctl status mackenziewalk --no-pager -n 10 | tail -n 14"
+"${SSH[@]}" "$HOST" "systemctl status mackenziewalk --no-pager -n 10 | tail -n 14"
 printf '\n'
