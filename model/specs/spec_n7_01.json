@@ -1,89 +1,15 @@
 {
   "id": "spec_n7_01",
   "n": 7,
-  "seed": 2045865001,
-  "fraction": 0.24,
   "targets": [
-    {
-      "expvals": {
-        "XI": -0.37,
-        "YX": 1.0,
-        "IY": 0.84
-      },
-      "qubits": [
-        0,
-        1
-      ],
-      "fraction": 0.24
-    },
-    {
-      "expvals": {
-        "IZ": -1.0,
-        "ZY": 0.26,
-        "IX": 1.0
-      },
-      "qubits": [
-        1,
-        2
-      ],
-      "fraction": 0.24
-    },
-    {
-      "expvals": {
-        "ZX": -0.14,
-        "XI": -0.08
-      },
-      "qubits": [
-        2,
-        3
-      ],
-      "fraction": 0.24
-    },
-    {
-      "expvals": {
-        "ZI": 0.14,
-        "ZX": 1.0
-      },
-      "qubits": [
-        3,
-        4
-      ],
-      "fraction": 0.24
-    },
-    {
-      "expvals": {
-        "XY": 0.91,
-        "ZY": 0.6
-      },
-      "qubits": [
-        4,
-        5
-      ],
-      "fraction": 0.24
-    },
-    {
-      "expvals": {
-        "ZX": -0.76,
-        "ZZ": -1.0,
-        "XX": -0.9
-      },
-      "qubits": [
-        5,
-        6
-      ],
-      "fraction": 0.24
-    },
-    {
-      "expvals": {
-        "XX": 1.0,
-        "ZZ": 1.0,
-        "IZ": -0.6
-      },
-      "qubits": [
-        6,
-        0
-      ],
-      "fraction": 0.24
-    }
+    { "expvals": {"YX": -0.04}, "qubits": [0, 3], "fraction": 0.27 },
+    { "expvals": {"ZY": -0.03, "XX": -0.2, "XZ": -0.01, "ZZ": -0.43}, "qubits": [4, 6], "fraction": 0.27 },
+    { "expvals": {"YZ": 0.7}, "qubits": [1, 5], "fraction": 0.27 },
+    { "expvals": {"YX": -0.89, "YI": -0.48, "ZY": -0.69, "ZX": -0.06}, "qubits": [0, 2], "fraction": 0.27 },
+    { "expvals": {"YY": -0.56, "XI": 0.53, "XX": -0.45}, "qubits": [1, 2], "fraction": 0.27 },
+    { "expvals": {"YZ": -0.5}, "qubits": [0, 1], "fraction": 0.27 },
+    { "expvals": {"IZ": -0.95, "XX": -0.99}, "qubits": [4, 5], "fraction": 0.27 },
+    { "expvals": {"YY": 0.15, "XZ": -0.28}, "qubits": [0, 6], "fraction": 0.27 },
+    { "expvals": {"YX": -0.05}, "qubits": [0, 5], "fraction": 0.27 }
   ]
 }

@@ -1,76 +1,12 @@
 {
   "id": "spec_n6_01",
   "n": 6,
-  "seed": 131018381,
-  "fraction": 0.39,
   "targets": [
-    {
-      "expvals": {
-        "ZI": -0.3,
-        "ZZ": -1.0,
-        "XY": -1.0
-      },
-      "qubits": [
-        0,
-        1
-      ],
-      "fraction": 0.39
-    },
-    {
-      "expvals": {
-        "IZ": -0.33,
-        "XI": -1.0
-      },
-      "qubits": [
-        1,
-        2
-      ],
-      "fraction": 0.39
-    },
-    {
-      "expvals": {
-        "YY": 1.0,
-        "YI": -1.0
-      },
-      "qubits": [
-        2,
-        3
-      ],
-      "fraction": 0.39
-    },
-    {
-      "expvals": {
-        "IZ": 0.57,
-        "ZX": -0.06
-      },
-      "qubits": [
-        3,
-        4
-      ],
-      "fraction": 0.39
-    },
-    {
-      "expvals": {
-        "ZY": -1.0,
-        "YI": -1.0,
-        "IY": 0.48
-      },
-      "qubits": [
-        4,
-        5
-      ],
-      "fraction": 0.39
-    },
-    {
-      "expvals": {
-        "XY": -0.44,
-        "XZ": 0.45
-      },
-      "qubits": [
-        5,
-        0
-      ],
-      "fraction": 0.39
-    }
+    { "expvals": {"XZ": -0.22, "YX": 1.0}, "qubits": [0, 1], "fraction": 0.95 },
+    { "expvals": {"ZZ": 1.0, "XY": 0.04, "YX": -0.04}, "qubits": [0, 2], "fraction": 0.95 },
+    { "expvals": {"XY": 0.83, "ZY": 0.34}, "qubits": [0, 3], "fraction": 0.95 },
+    { "expvals": {"XY": -0.49}, "qubits": [0, 4], "fraction": 0.95 },
+    null,
+    { "expvals": {"ZY": 0.71}, "qubits": [0, 5], "fraction": 0.95 }
   ]
 }

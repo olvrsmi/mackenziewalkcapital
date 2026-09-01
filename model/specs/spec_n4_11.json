@@ -1,0 +1,11 @@
+{
+  "id": "spec_n4_11",
+  "n": 4,
+  "targets": [
+    { "expvals": {"YX": 0.04, "XZ": -1.0, "ZZ": -0.31}, "qubits": [0, 3], "fraction": 0.73 },
+    null,
+    { "expvals": {"XY": -1.0, "ZZ": -1.0}, "qubits": [0, 1], "fraction": 0.73 },
+    { "expvals": {"ZX": 0.41, "XZ": 0.08, "YY": -0.61}, "qubits": [0, 2], "fraction": 0.73 },
+    { "expvals": {"ZX": 0.12}, "qubits": [0, 3], "fraction": 0.73 }
+  ]
+}
