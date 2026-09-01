@@ -13,7 +13,11 @@ import { gameSeconds, realMs, describeGame, describeReal, GAME_DAY_SECONDS }
   from './time.mjs'
 import { t, list, holding, moment } from './copy.mjs'
 
-export const READOUTS = 8
+// How many times a world is stepped. A specification has no natural end - it
+// would keep being applied forever - so this is the whole answer to "how long
+// is a round", and it is meant to be turned while testing. One step produces
+// one readout, so t0..t{STEPS-1}.
+export const STEPS = Number(process.env.MW_STEPS || 10)
 
 // Two clocks, deliberately separate. Readouts come due on a GAME-time schedule,
 // so retuning MW_TIME_SCALE retunes the physics with it. Messages go out on a
@@ -62,7 +66,12 @@ const money = (v) => `${(Math.round(v) || 0).toLocaleString('en-GB')}G`
  */
 export function prospectus (info) {
   const words = list('vocabulary.complexity')
-  const band = words.findIndex((_, i) => info.gates < 15 * Math.pow(3.2, i + 1))
+  // How much the specification asks of the world: the number of Pauli
+  // correlations it drives every step. Gate count used to carry this, but a
+  // specification's "gates" are just its targets times the step count, which
+  // barely varies between worlds - every one of them would read as simple.
+  const asked = info.constraints ?? info.gates ?? 0
+  const band = words.findIndex((_, i) => asked < 4 * Math.pow(1.45, i + 1))
   const complexity = words[band === -1 ? words.length - 1 : band] || 'unknown'
   const monopoly = Math.round(100 * info.pairs.length / Math.max(1, info.max_pairs))
   const volatility = Math.round(100 * (info.volatility ?? 0) / 2)
@@ -389,7 +398,7 @@ export function sceneMarket (S) {
  */
 export async function hydrate (S) {
   if (S.allWorlds) return S
-  const w = await callModel({ op: 'worlds', readouts: READOUTS })
+  const w = await callModel({ op: 'worlds', readouts: STEPS })
   S.allWorlds = w.worlds
   S.skipped = w.skipped.length
   return S
@@ -475,7 +484,7 @@ export async function handle (S, raw, emit = null) {
         await emit([...pre, entered])
       }
       const scout = await callModel({
-        op: 'scout', circuit: S.world.info.id, readouts: READOUTS,
+        op: 'scout', circuit: S.world.info.id, readouts: STEPS,
         direction: S.direction, coherence: S.coherence,
       })
       S.clean = scout
@@ -567,7 +576,7 @@ export async function handle (S, raw, emit = null) {
         await emit([...pre, text(t('scenes.staking', { stake: money(stake), target: q, holding: holding(q, S.world.holdings) }))])
       }
       const play = await callModel({
-        op: 'play', circuit: S.world.info.id, readouts: READOUTS,
+        op: 'play', circuit: S.world.info.id, readouts: STEPS,
         invest_at: S.readoutIndex, target: q,
         direction: S.direction, coherence: S.coherence,
       })

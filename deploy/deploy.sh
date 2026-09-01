@@ -83,8 +83,17 @@ if [ "$DEPS" -eq 1 ]; then
   # Both are quiet when there is nothing to do. The python one reaches GitHub:
   # pairwise-tomography installs from a git URL.
   ssh "$HOST" "set -e
+    cd $ROOT_DIR
+    # the private engine clones are outside the app, so a deploy has to move
+    # them too or the game runs new code against an old engine
+    for name in qdrive-api QDrive; do
+      [ -d vendor/\$name/.git ] || continue
+      git -C vendor/\$name fetch --quiet origin
+      git -C vendor/\$name reset --quiet --hard origin/HEAD 2>/dev/null || true
+    done
     cd $APP
-    model/.venv/bin/pip install -q -r model/requirements.txt
+    model/.venv/bin/pip install -q \$(grep -vE '^[[:space:]]*(#|\$)|^qdrive @' model/requirements.txt)
+    model/.venv/bin/pip install -q -e $ROOT_DIR/vendor/QDrive
     model/.venv/bin/python3 -m compileall -q model >/dev/null 2>&1 || true
     cd server && npm ci --omit=dev --silent
     chown -R root:root $APP" || die "dependency install failed"
@@ -94,13 +103,16 @@ fi
 # --- does the model still answer? -------------------------------------------
 # Cheap, and it catches a broken install before players do rather than after.
 say "Smoke test"
-n=$(ssh "$HOST" "cd $APP/model && echo '{\"op\":\"worlds\",\"readouts\":8}' \
-      | .venv/bin/python3 engine.py 2>/dev/null | head -c 200000" \
+# Runs the model exactly as the service will, engine location and all. On a
+# warm cache this reads the specifications without loading qiskit at all, so it
+# is nearly free; on a cold one it is the thing that proves the engine works.
+n=$(ssh "$HOST" "cd $APP/model && MW_QDRIVE_API_SRC=$ROOT_DIR/vendor/qdrive-api/src \
+      sh -c 'echo {\"op\":\"worlds\"} | .venv/bin/python3 engine.py'" 2>/dev/null \
     | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{
         try{const j=JSON.parse(s);process.stdout.write(String(j.ok?j.worlds.length:0))}
         catch{process.stdout.write("0")}})')
 [ "${n:-0}" -gt 0 ] || die "the model did not answer on the box. ssh $HOST $APP/deploy/preflight.sh"
-note "$n circuits playable"
+note "$n worlds playable"
 
 say "Restarting"
 # One poller per token: stop before start, never overlap.

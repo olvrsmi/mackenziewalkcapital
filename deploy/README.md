@@ -20,7 +20,17 @@ ssh root@your.box 'bash -s' < deploy/setup.sh
 That is self-contained: it clones this repository itself, installs Node 22 and
 a Python venv, creates an unprivileged `mw` user, installs both sets of
 dependencies, registers the services, and turns on a firewall that allows only
-SSH. It leaves an empty `.env` for you to fill in:
+SSH.
+
+**It will stop the first time,** to print two SSH public keys. The QDrive
+engine lives in two private repositories — `moth-quantum/qdrive-api` and
+`moth-quantum/QDrive` — which cannot be vendored into a public repository, so
+the box clones them. GitHub refuses to reuse one deploy key across repositories,
+so each gets its own key and an ssh alias to select it. Add each printed key as
+a **read-only** deploy key under that repository's Settings → Deploy keys, then
+run the same command again; it picks up where it stopped.
+
+It then leaves an empty `.env` for you to fill in:
 
 ```
 ssh root@your.box nano /opt/mackenziewalk/app/server/.env
@@ -83,6 +93,7 @@ because that mistake takes the game down rather than erroring loudly.
 | | |
 |---|---|
 | code | `/opt/mackenziewalk/app` — a git clone, owned by root |
+| engine | `/opt/mackenziewalk/vendor/{qdrive-api,QDrive}` — private clones |
 | saved games | `/opt/mackenziewalk/state` |
 | event log | `/opt/mackenziewalk/logs/events.jsonl` |
 | backups | `/opt/mackenziewalk/backups`, nightly, 14 kept |
@@ -147,14 +158,19 @@ Measured, not estimated:
 |---|---|
 | node | ~163MB resident |
 | python per call | 100MB, 165MB for `worlds` |
-| `worlds` | 1.7s, on boot and after a restart |
-| `scout` / `play` | ~0.5s |
+| `worlds` | 0.04s warm — it never loads qiskit |
+| `scout` / `play` | 4s at two qubits, 9s at seven |
 | render | 16ms, 34KB |
 
-Python runs **per round, not per readout** — the whole run is precomputed when
-the position opens. So cost follows how often people *start* rounds, not how
-long they hold. Five players acting at once is five Python processes, about
-800MB, for a second.
+Python runs **per round, not per readout** — the whole ten-step run is computed
+when the world is scouted and again when the position opens. So cost follows how
+often people *start* rounds, not how long they hold, but each of those is now
+several seconds rather than half of one: a step is a whole job, and there are
+ten of them.
+
+The world characters in `model/specs/_stats_cache.json` are committed for that
+reason. Building them from cold is 108 seconds, and the code directory is
+read-only at runtime, so the box could neither afford it nor save the result.
 
 The first wall is Telegram, not the box. Readouts post aligned to the wall
 clock, so every active player is messaged in the same instant. Per-chat limits
@@ -169,11 +185,17 @@ CPU does.
 - **ARM (CAX-series) is untested.** `qiskit-aer` and `@napi-rs/canvas` both
   ship prebuilt binaries per architecture; `preflight.sh` checks the canvas
   one specifically. Cheaper, but verify before committing to it.
-- **`pairwise-tomography` installs from a GitHub URL**, so a deploy needs `git`
-  and reachable GitHub. It is the likeliest install failure.
-- **Python version.** qiskit does not import on 3.10.7. Ubuntu 24.04 ships
-  3.12, which is fine, but `preflight.sh` imports qiskit rather than trusting
-  the version string.
+- **Two private repositories** have to stay reachable. A revoked deploy key
+  breaks the next deploy, not the running game — `preflight.sh` checks the
+  engine source is still there.
+- **Python version.** The QDrive engine declares 3.12 or newer, and qiskit does
+  not import at all on 3.10.7. Ubuntu 24.04 ships 3.12, which is fine, but
+  `preflight.sh` checks the version *and* imports every module rather than
+  trusting either.
+- **`engine.py` shims a seeding bug** in qdrive-api's `backend.py`: the
+  estimator's seed is passed as `backend_options`, which AerEstimator ignores,
+  so jobs are not reproducible. The shim sets `run_options.seed_simulator`
+  instead. `model/selftest.py` fails if it ever stops working.
 - **`curl | bash`** installs Node from NodeSource. It is their documented
   method; swap it for `apt install nodejs` if you would rather have Ubuntu's
   older Node.

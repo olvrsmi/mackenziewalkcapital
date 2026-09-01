@@ -1,0 +1,43 @@
+{
+  "id": "spec_n3_03",
+  "n": 3,
+  "seed": 1084517623,
+  "fraction": 0.3,
+  "targets": [
+    {
+      "expvals": {
+        "IX": -0.82,
+        "XZ": 0.96,
+        "XY": -0.53
+      },
+      "qubits": [
+        0,
+        1
+      ],
+      "fraction": 0.3
+    },
+    {
+      "expvals": {
+        "XI": 0.77,
+        "YZ": -0.55,
+        "ZZ": -0.5
+      },
+      "qubits": [
+        1,
+        2
+      ],
+      "fraction": 0.3
+    },
+    {
+      "expvals": {
+        "YI": 0.4,
+        "ZI": 1.0
+      },
+      "qubits": [
+        2,
+        0
+      ],
+      "fraction": 0.3
+    }
+  ]
+}

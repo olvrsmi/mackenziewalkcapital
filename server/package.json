@@ -13,7 +13,8 @@
     "copy-check": "node copy-check.mjs",
     "test": "node selftest.mjs",
     "local": "MW_LOCAL=1 node bot.mjs",
-    "stats": "node stats.mjs"
+    "stats": "node stats.mjs",
+    "model-test": "cd ../model && .venv/bin/python3 selftest.py"
   },
   "dependencies": {
     "@napi-rs/canvas": "^0.1.60",

@@ -60,6 +60,60 @@ else
   note "created $USER_NAME"
 fi
 
+say "Private dependencies"
+# The QDrive engine lives in two private repositories, and this one is public,
+# so neither can be vendored. GitHub refuses to reuse a deploy key across repos,
+# so each gets its own key plus an ssh alias to select it. Keys are generated
+# here and printed once; the clone below fails until they are registered.
+VENDOR="$ROOT/vendor"
+mkdir -p "$VENDOR" /root/.ssh
+chmod 700 /root/.ssh
+declare -A REPOS=( [qdrive-api]=moth-quantum/qdrive-api [QDrive]=moth-quantum/QDrive )
+missing=0
+for name in "${!REPOS[@]}"; do
+  key="/root/.ssh/deploy_${name}"
+  alias_host="gh-${name}"
+  if [ ! -f "$key" ]; then
+    ssh-keygen -q -t ed25519 -N "" -C "mackenziewalk box -> ${REPOS[$name]}" -f "$key"
+    missing=1
+  fi
+  if ! grep -q "^Host $alias_host\$" /root/.ssh/config 2>/dev/null; then
+    printf 'Host %s\n  HostName github.com\n  User git\n  IdentityFile %s\n  IdentitiesOnly yes\n\n' \
+      "$alias_host" "$key" >> /root/.ssh/config
+  fi
+  ssh-keyscan -t ed25519 github.com 2>/dev/null | grep -q . && \
+    ssh-keyscan -t ed25519 github.com 2>/dev/null >> /root/.ssh/known_hosts
+done
+sort -u -o /root/.ssh/known_hosts /root/.ssh/known_hosts 2>/dev/null || true
+chmod 600 /root/.ssh/config 2>/dev/null || true
+
+for name in "${!REPOS[@]}"; do
+  if ! ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new \
+       -T "git@gh-${name}" 2>&1 | grep -q "successfully authenticated"; then
+    note "deploy key for ${REPOS[$name]} is not registered yet. Add this as a"
+    note "read-only deploy key at https://github.com/${REPOS[$name]}/settings/keys :"
+    printf '\n'
+    cat "/root/.ssh/deploy_${name}.pub"
+    printf '\n'
+    missing=1
+  fi
+done
+if [ "$missing" -eq 1 ]; then
+  die "register the deploy key(s) above, then run this again"
+fi
+
+for name in "${!REPOS[@]}"; do
+  if [ -d "$VENDOR/$name/.git" ]; then
+    git -C "$VENDOR/$name" fetch --quiet origin && \
+      git -C "$VENDOR/$name" reset --quiet --hard origin/HEAD 2>/dev/null || true
+    note "$name updated"
+  else
+    git clone --quiet "git@gh-${name}:${REPOS[$name]}.git" "$VENDOR/$name" \
+      || die "could not clone ${REPOS[$name]} - is the deploy key registered?"
+    note "$name cloned"
+  fi
+done
+
 say "Code"
 # The clone stays owned by root and the game runs as an unprivileged user, so
 # the process cannot rewrite the code it is running. Data lives outside the
@@ -105,6 +159,13 @@ MW_TIME_SCALE=24
 MW_STATE_DIR=$ROOT/state
 MW_LOG_FILE=$ROOT/logs/events.jsonl
 
+# qdrive-api's src/, cloned by setup.sh. Its modules are flat and one of them is
+# also called engine.py, so it is loaded by path rather than pip-installed.
+MW_QDRIVE_API_SRC=$ROOT/vendor/qdrive-api/src
+
+# How many times a world is stepped before the round ends.
+MW_STEPS=10
+
 # While the prototype is private. Forward a message to @userinfobot for an id.
 MW_ALLOW=
 ENVEOF
@@ -117,7 +178,11 @@ fi
 say "Dependencies"
 [ -d "$APP/model/.venv" ] || python3 -m venv "$APP/model/.venv"
 "$APP/model/.venv/bin/pip" install -q --upgrade pip
-"$APP/model/.venv/bin/pip" install -q -r "$APP/model/requirements.txt"
+# QDrive comes from the clone rather than being fetched again over ssh, so the
+# box needs GitHub access only in the step above.
+"$APP/model/.venv/bin/pip" install -q \
+  $(grep -vE '^\s*(#|$)|^qdrive @' "$APP/model/requirements.txt")
+"$APP/model/.venv/bin/pip" install -q -e "$VENDOR/QDrive"
 # Compile now, as root, so the read-only runtime never tries to write bytecode.
 "$APP/model/.venv/bin/python3" -m compileall -q "$APP/model" >/dev/null 2>&1 || true
 ( cd "$APP/server" && npm ci --omit=dev --silent )

@@ -56,27 +56,43 @@ if command -v node >/dev/null; then
 else bad "node is not installed"; fi
 
 if [ -x "$VENV" ]; then
-  ok "model venv  $("$VENV" --version 2>&1)"
-  # 3.10.7 raises inside qiskit.passmanager on import; 3.10.13 is fine. The
-  # only way to know is to import it.
-  if err=$("$VENV" -c 'import qiskit' 2>&1); then
-    ok "qiskit imports ($("$VENV" -c 'import qiskit;print(qiskit.__version__)' 2>/dev/null))"
+  pyver=$("$VENV" -c 'import sys;print("%d.%d"%sys.version_info[:2])' 2>/dev/null)
+  # the QDrive engine declares >=3.12, and 3.10.7 additionally raises inside
+  # qiskit.passmanager on import. Both are only knowable by trying.
+  if [ "$(printf '%s\n3.12\n' "$pyver" | sort -V | head -1)" = "3.12" ]; then
+    ok "model venv  $("$VENV" --version 2>&1)"
   else
-    bad "qiskit will not import: $(printf '%s' "$err" | tail -1)"
+    bad "model venv is $pyver; the QDrive engine needs 3.12 or newer"
   fi
+  for mod in qiskit qiskit_aer qdrive qiskit_qasm3_import; do
+    if err=$("$VENV" -c "import $mod" 2>&1); then
+      ok "$mod imports"
+    else
+      bad "$mod will not import: $(printf '%s' "$err" | tail -1)"
+    fi
+  done
 else
   bad "no venv at $VENV - run deploy.sh without --no-deps"
 fi
 
+# The engine source is cloned, not vendored, so a deploy that lost its GitHub
+# access leaves the venv fine and this directory missing.
+SRC=$(from_env MW_QDRIVE_API_SRC); SRC=${SRC:-$MODEL/vendor/qdrive-api/src}
+if [ -f "$SRC/engine.py" ] && [ -f "$SRC/backend.py" ]; then
+  ok "QDrive engine source at $SRC"
+else
+  bad "no QDrive engine at $SRC - setup.sh clones it; is the deploy key still registered?"
+fi
+
 # --- the model actually answering -------------------------------------------
 if [ -x "$VENV" ] && [ -f "$MODEL/engine.py" ]; then
-  out=$(cd "$MODEL" && echo '{"op":"worlds","readouts":8}' \
-        | limited 180 "$VENV" engine.py 2>/dev/null)
+  out=$(cd "$MODEL" && MW_QDRIVE_API_SRC="$SRC" echo '{"op":"worlds"}' \
+        | (cd "$MODEL" && MW_QDRIVE_API_SRC="$SRC" limited 300 "$VENV" engine.py 2>/dev/null))
   n=$(printf '%s' "$out" | node -e '
     let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{
       try{const j=JSON.parse(s);process.stdout.write(String(j.ok?j.worlds.length:0))}
       catch{process.stdout.write("0")}})' 2>/dev/null)
-  if [ "${n:-0}" -gt 0 ]; then ok "model answers - $n circuits playable"
+  if [ "${n:-0}" -gt 0 ]; then ok "model answers - $n worlds playable"
   else bad "the model returned nothing usable"; fi
 else
   skipf "model call (no venv)"
@@ -171,6 +187,18 @@ if [ -f "$SERVER/selftest.mjs" ] && [ -d "$SERVER/node_modules" ]; then
   rm -rf /tmp/mw-preflight
 else
   skipf "selftest"
+fi
+
+# --- the model's own assumptions -------------------------------------------
+if [ -f "$MODEL/selftest.py" ] && [ -x "$VENV" ] && [ -f "$SRC/engine.py" ]; then
+  if out=$(cd "$MODEL" && MW_QDRIVE_API_SRC="$SRC" limited 600 "$VENV" selftest.py 2>&1); then
+    ok "model selftest passes ($(printf '%s' "$out" | grep -c '^  pass') checks)"
+  else
+    bad "model selftest failed"
+    printf '%s\n' "$out" | sed -n 's/^  FAIL/        FAIL/p' | head -5
+  fi
+else
+  skipf "model selftest"
 fi
 
 printf '\n  %d ok, %d failed, %d skipped\n\n' "$pass" "$fail" "$skip"

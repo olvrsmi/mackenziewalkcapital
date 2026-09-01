@@ -1,0 +1,66 @@
+{
+  "id": "spec_n5_03",
+  "n": 5,
+  "seed": 1371076766,
+  "fraction": 0.33,
+  "targets": [
+    {
+      "expvals": {
+        "ZY": 1.0,
+        "XY": -0.49,
+        "XI": 0.04
+      },
+      "qubits": [
+        0,
+        1
+      ],
+      "fraction": 0.33
+    },
+    {
+      "expvals": {
+        "YZ": -0.75,
+        "YX": 0.62
+      },
+      "qubits": [
+        1,
+        2
+      ],
+      "fraction": 0.33
+    },
+    {
+      "expvals": {
+        "ZX": -0.88,
+        "YI": 0.68,
+        "XI": -0.28
+      },
+      "qubits": [
+        2,
+        3
+      ],
+      "fraction": 0.33
+    },
+    {
+      "expvals": {
+        "YX": 1.0,
+        "YZ": 1.0
+      },
+      "qubits": [
+        3,
+        4
+      ],
+      "fraction": 0.33
+    },
+    {
+      "expvals": {
+        "YY": 1.0,
+        "YZ": 0.68,
+        "ZZ": -0.41
+      },
+      "qubits": [
+        4,
+        0
+      ],
+      "fraction": 0.33
+    }
+  ]
+}

@@ -1,5 +1,25 @@
-qiskit>=2.0
-qiskit-aer
-scipy
-numpy
-pairwise-tomography @ git+https://github.com/moth-quantum/pairwise-tomography.git
+# The QDrive engine, driven by model/engine.py.
+#
+# Both repositories are private and this one is public, so neither is vendored
+# here the way QuantumGraph was. deploy/setup.sh clones them beside the app with
+# a read-only deploy key; MW_QDRIVE_API_SRC then points at qdrive-api's src/.
+#
+#   pip install -r requirements.txt
+#   export MW_QDRIVE_API_SRC=/path/to/qdrive-api/src
+#
+# qdrive-api itself is NOT pip-installed: its modules are flat in src/ (engine.py
+# does `from backend import ...`), and one of them is called engine.py, same as
+# this directory's. It is loaded from an explicit path instead.
+
+qiskit>=2.5.1
+qiskit-aer>=0.17.2
+pydantic>=2.13.4
+
+# engine.py's initial_circuit chaining calls qiskit.qasm3.loads(), and plain
+# qiskit does not ship the QASM3 *parser*.
+qiskit-qasm3-import>=0.6.0
+
+# Moth's QDrive. Private: needs a deploy key on the box, or GitHub access
+# locally. Do NOT `pip install qdrive` - that PyPI name is an unrelated QHarbor
+# library which imports cleanly while being entirely the wrong thing.
+qdrive @ git+ssh://git@github.com/moth-quantum/QDrive.git@main
