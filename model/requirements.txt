@@ -21,10 +21,14 @@ pydantic>=2.13.4
 # qiskit does not ship the QASM3 *parser*.
 qiskit-qasm3-import>=0.6.0
 
-# Moth's QDrive. Private, and not installed from GitHub on the box: that would
-# need a deploy key on a repository we do not administer. deploy.sh sends a
-# checkout from a machine that already has one, and installs it from there.
-# This line is for local development, where you do have access
-# locally. Do NOT `pip install qdrive` - that PyPI name is an unrelated QHarbor
-# library which imports cleanly while being entirely the wrong thing.
-qdrive @ git+ssh://git@github.com/moth-quantum/QDrive.git@main
+# Moth's QDrive is deliberately NOT listed here. It is installed from a checkout,
+# on the box and on a laptop alike:
+#
+#   pip install -e /path/to/QDrive
+#
+# Listing it as `qdrive @ git+ssh://...` meant every reader of this file had to
+# filter that line back out, and a filter that missed one `@` line word-split it
+# into a bare `@` argument and a baffling pip error. One mechanism instead.
+#
+# Do NOT `pip install qdrive` - that PyPI name is an unrelated QHarbor library
+# which imports cleanly while being entirely the wrong thing.

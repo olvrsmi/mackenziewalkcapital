@@ -117,7 +117,7 @@ if [ "$DEPS" -eq 1 ]; then
   # pairwise-tomography installs from a git URL.
   ssh "$HOST" "set -e
     cd $APP
-    model/.venv/bin/pip install -q \$(grep -vE '^[[:space:]]*(#|\$)|^qdrive @' model/requirements.txt)
+    model/.venv/bin/pip install -q -r model/requirements.txt
     model/.venv/bin/pip install -q -e $ROOT_DIR/vendor/QDrive
     model/.venv/bin/python3 -m compileall -q model >/dev/null 2>&1 || true
     cd server && npm ci --omit=dev --silent

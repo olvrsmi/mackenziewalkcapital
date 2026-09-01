@@ -73,6 +73,23 @@ else
   note "no engine yet - deploy.sh sends it"
 fi
 
+say "Code"
+# The clone stays owned by root and the game runs as an unprivileged user, so
+# the process cannot rewrite the code it is running. Data lives outside the
+# working tree entirely, which also keeps `git reset --hard` from ever being
+# near a saved game.
+if [ -d "$APP/.git" ]; then
+  git -C "$APP" remote set-url origin "$REPO"
+  git -C "$APP" fetch --quiet origin "$BRANCH"
+  git -C "$APP" reset --quiet --hard "origin/$BRANCH"
+  note "updated to $(git -C "$APP" log --oneline -1)"
+else
+  mkdir -p "$ROOT"
+  git clone --quiet --branch "$BRANCH" "$REPO" "$APP" \
+    || die "could not clone $REPO - is it public, or does this box need a key?"
+  note "cloned $(git -C "$APP" log --oneline -1)"
+fi
+chown -R root:root "$APP"
 say "Data"
 for d in state logs backups; do
   mkdir -p "$ROOT/$d"
@@ -121,8 +138,7 @@ say "Dependencies"
 "$APP/model/.venv/bin/pip" install -q --upgrade pip
 # QDrive comes from the clone rather than being fetched again over ssh, so the
 # box needs GitHub access only in the step above.
-"$APP/model/.venv/bin/pip" install -q \
-  $(grep -vE '^\s*(#|$)|^qdrive @' "$APP/model/requirements.txt")
+"$APP/model/.venv/bin/pip" install -q -r "$APP/model/requirements.txt"
 if [ -d "$VENDOR/QDrive/src" ]; then
   "$APP/model/.venv/bin/pip" install -q -e "$VENDOR/QDrive"
 else

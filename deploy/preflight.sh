@@ -55,6 +55,20 @@ if command -v node >/dev/null; then
   else bad "node $(node --version) is below the required 18"; fi
 else bad "node is not installed"; fi
 
+# --- is the box running the code you think it is? ---------------------------
+# A setup that quietly stopped updating the clone leaves the box on old code
+# with new scripts driving it, which surfaces as errors from files nobody is
+# looking at any more.
+if [ -d "$APP/.git" ]; then
+  head=$(git -C "$APP" log --oneline -1 2>/dev/null || echo unknown)
+  ok "app at $head"
+  if ! git -C "$APP" diff --quiet 2>/dev/null; then
+    bad "the clone has local modifications - a deploy will discard them"
+  fi
+else
+  skipf "app is not a git checkout"
+fi
+
 if [ -x "$VENV" ]; then
   pyver=$("$VENV" -c 'import sys;print("%d.%d"%sys.version_info[:2])' 2>/dev/null)
   # the QDrive engine declares >=3.12, and 3.10.7 additionally raises inside
