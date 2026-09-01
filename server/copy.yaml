@@ -181,8 +181,6 @@ buttons:
   stake: "{amount}"
   # {index} {world} {opportunities}
   world: "{index}. {world} — {opportunities} opportunit{opportunities|s:y:ies}"
-  held: "{world} (position held)"
-  locked: "{world} (locked)"
   # {readout}
   exit_point: "{moment}"
   exit_end: "{moment} (the end)"
@@ -220,6 +218,54 @@ plots:
   traces_legend: "<value> -1 to +1 per row"
 
 # The places a player may be offered. Add, cut and rename freely.
+# Tickers for the holdings inside a world. Each world draws as many as it
+# has qubits, and no two worlds in one offer share a ticker. Runs out
+# gracefully: a world with more qubits than there are names left falls
+# back to vocabulary.holding.
+holdings:
+  - PBP
+  - WTW
+  - NPG
+  - CRV
+  - TCE
+  - IIS
+  - TWM
+  - LLD
+  - VBD
+  - PTB
+  - SSR
+  - TST
+  - FCB
+  - WTN
+  - SSC
+  - CPM
+  - RPF
+  - STL
+  - RFS
+  - EPO
+  - CMR
+  - DTE
+  - CHS
+  - PLJ
+  - OOT
+  - FCE
+  - BND
+  - DCL
+  - BCL
+  - ECV
+  - ASR
+  - LRI
+  - STH
+  - JJS
+  - CCF
+  - TGD
+  - WSE
+  - BBC
+  - SSP
+  - WGG
+  - SBN
+  - ELS
+
 worlds:
   - Powder Pram
   - Rice Vision

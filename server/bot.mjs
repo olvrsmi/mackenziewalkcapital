@@ -88,7 +88,8 @@ function keyboardFor (S) {
     case 'target': {
       const n = S.world?.info?.n || 0
       for (let q = 0; q < n; q++) {
-        k.text(t('buttons.qubit', { index: q, holding: holding(q) }), `${q}`)
+        k.text(t('buttons.qubit',
+            { index: q, holding: holding(q, S.world?.holdings) }), `${q}`)
         if ((q + 1) % 4 === 0 && q + 1 < n) k.row()
       }
       return k
@@ -102,17 +103,11 @@ function keyboardFor (S) {
       }
       return k
     }
-    case 'running': {
-      // Telegram has no disabled button, so the board stays visible with a lock
-      // and a tap explains itself rather than doing nothing
-      const held = S.world?.name
-      for (const w of S.worlds || []) {
-        k.text(t(w.name === held ? 'buttons.held' : 'buttons.locked',
-                 { world: w.name }), 'locked').row()
-      }
-      k.text(t('buttons.marketplace'), 'm').text(t('buttons.status'), 'state')
-      return k
-    }
+    case 'running':
+      // Nothing here is actionable while a position is open, and repeating the
+      // three worlds under every readout was just clutter. Old messages keep
+      // their locked buttons, so the 'locked' callback still has to answer.
+      return k.text(t('buttons.marketplace'), 'm').text(t('buttons.status'), 'state')
     case 'stake': {
       const money = Math.floor(S.balance)
       const picks = [...new Set([100, 250, 500, Math.floor(money / 2), money])]
@@ -186,14 +181,26 @@ async function deliver (chatId, emissions, S, { keyboard = true } = {}) {
       const png = e.kind === 'traces'
         ? renderTraces({ n: e.n, z: e.z, upto: e.upto,
             totalReadouts: e.totalReadouts, target: e.target,
-            interventionAt: e.interventionAt, title: e.title })
+            interventionAt: e.interventionAt, holdings: e.holdings,
+            title: e.title })
         : renderGatemap({ n: e.n, layers: e.layers, cuts: e.cuts,
-            nLayers: e.nLayers, title: e.title })
+            nLayers: e.nLayers, holdings: e.holdings, title: e.title })
       logEvent('render', { chat: chatId, kind: e.kind, n: e.n,
                            ms: Math.round(Number(process.hrtime.bigint() - t0) / 1e6),
                            bytes: png.length })
+      // A reading and the picture of it are one thing, so they travel as one
+      // message. Telegram caps a caption at 1024 characters; a post that
+      // somehow carries more falls back to sending them separately.
+      const cap = e.caption ? toHtml(e.caption) : null
+      const fits = cap !== null && cap.length <= 1024
+      if (cap !== null && !fits) {
+        await sendWithRetry(() => bot.api.sendMessage(chatId, cap,
+          { parse_mode: 'HTML' }), chatId)
+      }
       await sendWithRetry(() => bot.api.sendPhoto(chatId,
-        new InputFile(png, 'plot.png'), { reply_markup }), chatId)
+        new InputFile(png, 'plot.png'),
+        { reply_markup, ...(fits ? { caption: cap, parse_mode: 'HTML' } : {}) }),
+        chatId)
     }
   }
 }

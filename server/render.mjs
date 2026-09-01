@@ -57,7 +57,7 @@ function frame (height, title, draw) {
  * `target` and `interventionAt` are null before an investment is placed.
  */
 export function renderTraces ({ n, z, upto, totalReadouts, target = null,
-                                interventionAt = null, title }) {
+                                interventionAt = null, holdings, title }) {
   const H = 48 + n * 26 + 30
   return frame(H, title, (ctx, W) => {
     const padL = 52, padR = 66, padT = 48
@@ -93,7 +93,7 @@ export function renderTraces ({ n, z, upto, totalReadouts, target = null,
       ctx.fillStyle = isTarget ? WARM : DIM
       ctx.font = `${isTarget ? 'bold ' : ''}12px ${MONO}`
       ctx.textAlign = 'right'
-      ctx.fillText(holding(q), padL - 10, yMid + 4)
+      ctx.fillText(holding(q, holdings), padL - 10, yMid + 4)
 
       const series = z.map((row) => row[q])
       ctx.strokeStyle = qcol(q)
@@ -134,7 +134,7 @@ export function renderTraces ({ n, z, upto, totalReadouts, target = null,
  * two-qubit, dashes for the readout cuts. Legible at any depth, unlike a real
  * gate diagram, and its x axis *is* the layer index so the cuts land exactly.
  */
-export function renderGatemap ({ n, layers, cuts, nLayers, title }) {
+export function renderGatemap ({ n, layers, cuts, nLayers, holdings, title }) {
   const H = 48 + n * 18 + 30
   return frame(H, title, (ctx, W) => {
     const padL = 52, padR = 18, padT = 48
@@ -153,7 +153,7 @@ export function renderGatemap ({ n, layers, cuts, nLayers, title }) {
       ctx.fillStyle = DIM
       ctx.font = `11px ${MONO}`
       ctx.textAlign = 'right'
-      ctx.fillText(holding(q), padL - 10, y(q) + 4)
+      ctx.fillText(holding(q, holdings), padL - 10, y(q) + 4)
     }
 
     ctx.strokeStyle = 'rgba(255,255,255,.35)'

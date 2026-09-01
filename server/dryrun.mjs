@@ -11,7 +11,7 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 import './env.mjs'
-import { loadCopy } from './copy.mjs'
+import { loadCopy, holding } from './copy.mjs'
 loadCopy({ quiet: true })
 import * as game from './game.mjs'
 import { renderTraces, renderGatemap } from './render.mjs'
@@ -22,7 +22,7 @@ const pngDir = process.argv.includes('--png')
 if (pngDir) mkdirSync(pngDir, { recursive: true })
 
 let shot = 0
-const sent = { text: 0, photo: 0, bytes: 0 }
+const sent = { text: 0, photo: 0, captions: 0, bytes: 0 }
 
 // the same mapping bot.mjs uses, kept in step by importing nothing from it:
 // buttons are just the tokens a player could type
@@ -34,10 +34,10 @@ function buttonsFor (S) {
       ? ['Invest', 'Observe', 'Leave'] : ['Invest', 'Observe']
     case 'exit': return ['readout n…', 'the end']
     case 'target': return Array.from({ length: S.world?.info?.n || 0 },
-                                     (_, q) => `q${q}`)
+                                     (_, q) => holding(q, S.world?.holdings))
     case 'stake': return ['100G', '250G', '500G', `All ${Math.floor(S.balance)}G`]
-    case 'market': return ['Buy', 'Sell', 'Leave']
-    case 'buy': case 'sell': return ['5', '10', '25', '50']
+    case 'market': return ['Buy', 'Leave']
+    case 'buy': return ['1', '2', '5', '10']
     default: return null
   }
 }
@@ -52,12 +52,19 @@ function show (emissions, S) {
       const png = e.kind === 'traces'
         ? renderTraces({ n: e.n, z: e.z, upto: e.upto,
             totalReadouts: e.totalReadouts, target: e.target,
-            interventionAt: e.interventionAt, title: e.title })
+            interventionAt: e.interventionAt, holdings: e.holdings,
+            title: e.title })
         : renderGatemap({ n: e.n, layers: e.layers, cuts: e.cuts,
-            nLayers: e.nLayers, title: e.title })
+            nLayers: e.nLayers, holdings: e.holdings, title: e.title })
       sent.photo++; sent.bytes += png.length
       if (pngDir) writeFileSync(join(pngDir, `${String(++shot).padStart(2, '0')}-${e.kind}.png`), png)
       console.log(`  [photo] ${e.kind.padEnd(8)} ${(png.length / 1024 | 0)}KB  ${e.title}`)
+      if (e.caption) {
+        sent.captions++
+        for (const line of e.caption.split('\n')) {
+          console.log(`  [caption] ${line.replace(/\*\*/g, '')}`)
+        }
+      }
     }
   }
   const b = buttonsFor(S)
@@ -96,7 +103,7 @@ while (!step.done && guard++ < 40) {
   show(step.emissions, S)
 }
 
-console.log(`\n  sent ${sent.text} text and ${sent.photo} photos ` +
+console.log(`\n  sent ${sent.text} text and ${sent.photo} photos (${sent.captions} carrying a reading) ` +
             `(${(sent.bytes / 1024 | 0)}KB total)`)
 console.log(`  balance ${Math.round(S.balance)}G · coherence ${S.coherence.toFixed(3)} ` +
             `· expect '${S.expect}'`)

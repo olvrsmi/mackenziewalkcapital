@@ -40,7 +40,10 @@ await game.handle(S, 'help')
 const seen = recorded()
 
 // --- 1. keys referenced in code that copy.yaml does not define -------------
-const sources = ['game.mjs', 'bot.mjs', 'render.mjs']
+// copy.mjs is in here because the vocabulary helpers hold the only static
+// reference to vocabulary.holding, which is now a fallback rather than the
+// usual path - a real reference the scan would otherwise call stale.
+const sources = ['game.mjs', 'bot.mjs', 'render.mjs', 'copy.mjs']
 const referenced = new Set()
 for (const f of sources) {
   const src = readFileSync(new URL(f, import.meta.url), 'utf8')

@@ -120,15 +120,47 @@ const ok = (name, cond, detail = '') => {
   ok('a post before the first readout stays quiet rather than repeating the entry',
      early.emissions.length === 0, `${early.emissions.length} emission(s)`)
 
-  // and each post after that carries exactly one reading
+  // and each post after that carries exactly one reading. A reading rides as
+  // the caption on its own graph now, so counting text emissions would miss it.
+  const readings = (em) => em.flatMap((e) =>
+    (e.caption ?? (e.kind === 'text' ? e.text : '')).split('\n').filter(Boolean)).length
   const counts = []
   let t = S.run.startedMs + realMs(game.READOUT_GAME_SECONDS) / 3
   for (let i = 0; i < 4; i++) {
     t += game.POST_MS
-    counts.push(game.step(S, t).emissions.filter((e) => e.kind === 'text').length)
+    counts.push(readings(game.step(S, t).emissions))
   }
   ok('one reading per post once the circuit is moving',
      counts.every((c) => c === 1), `counts: ${counts.join(', ')}`)
+}
+
+// --- a reading and its graph are one message -------------------------------
+{
+  const S = game.newSession(41)
+  await game.boot(S)
+  await game.handle(S, '1'); await game.handle(S, 'i')
+  await game.handle(S, '250'); await game.handle(S, '1'); await game.handle(S, '6')
+  S.run.startedMs -= realMs(2 * game.READOUT_GAME_SECONDS)
+  const em = game.step(S).emissions
+  const withCaption = em.filter((e) => e.kind === 'traces' && e.caption)
+  ok('the reading rides on its own graph, not a message of its own',
+     withCaption.length === 1 && !em.some((e) => e.kind === 'text'),
+     em.map((e) => e.kind).join(', '))
+}
+
+// --- holdings are named per world ------------------------------------------
+{
+  const S = game.newSession(43)
+  await game.boot(S)
+  const all = S.worlds.flatMap((w) => w.holdings)
+  ok('every world names its holdings',
+     S.worlds.every((w) => w.holdings.length === w.info.n),
+     S.worlds.map((w) => `${w.info.n}:${w.holdings.length}`).join(' '))
+  ok('no ticker means two things in one offer',
+     new Set(all).size === all.length, all.join(' '))
+  await game.handle(S, '1')
+  ok('the plots are labelled with them',
+     game.sceneInvestment(S).some((e) => e.holdings?.length === S.world.info.n))
 }
 
 // --- the bell ----------------------------------------------------------------

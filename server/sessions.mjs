@@ -17,6 +17,7 @@ import { fileURLToPath } from 'node:url'
 
 import * as game from './game.mjs'
 import { logEvent } from './log.mjs'
+import { list } from './copy.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const STATE_DIR = process.env.MW_STATE_DIR || resolve(HERE, 'state')
@@ -55,6 +56,31 @@ function migrate (S) {
       S.investedToday = 1
     }
   }
+  // Worlds used to have no tickers, and a saved game mid-round would otherwise
+  // read E0/E1 until the next round came round. Assigned from the name so the
+  // same world keeps the same letters between restarts.
+  const tickers = list('holdings')
+  if (tickers.length) {
+    // distinct across the offer, as offerWorlds does it, or two worlds on the
+    // same table would show the same three letters for different holdings
+    const taken = new Set((S.worlds || []).flatMap((w) => w.holdings || []))
+    for (const w of S.worlds || []) {
+      if (w.holdings) continue
+      let h = 0
+      for (const c of w.name || '') h = (h * 31 + c.charCodeAt(0)) % tickers.length
+      w.holdings = []
+      for (let i = 0; w.holdings.length < (w.info?.n ?? 0) && i < tickers.length * 2; i++) {
+        const pick = tickers[(h + i) % tickers.length]
+        if (taken.has(pick)) continue
+        taken.add(pick)
+        w.holdings.push(pick)
+      }
+    }
+    const held = (S.worlds || []).find((w) => w.name === S.world?.name)
+    if (S.world && !S.world.holdings) S.world.holdings = held?.holdings
+    if (S.run && !S.run.holdings) S.run.holdings = S.world?.holdings
+  }
+
   if (!S.run) return
   if (S.run.exitAt === undefined) {
     S.run.exitAt = Math.max(S.run.investAt + 1, (S.world?.readouts ?? 8) - 1)
