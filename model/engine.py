@@ -65,6 +65,7 @@ import json
 import math
 import os
 import sys
+import zlib
 
 os.environ.setdefault('PYTHONWARNINGS', 'ignore')
 import warnings
@@ -187,11 +188,46 @@ def load(spec_id):
         raise Unusable(f'{spec_id} is unreadable: {e}') from e
     if not spec.get('targets'):
         raise Unusable(f'{spec_id} has no targets')
+    if 'n' not in spec:
+        raise Unusable(f'{spec_id} does not say how many qubits it has')
     n = int(spec['n'])
-    for t in spec['targets']:
-        if any(not (0 <= q < n) for q in t['qubits']):
-            raise Unusable(f'{spec_id} targets a qubit outside its {n}')
+    if n < 2:
+        raise Unusable(f'{spec_id} has n={n}; a target needs two qubits')
+
+    for i, t in enumerate(spec['targets']):
+        # A null entry is legitimate: the engine reads it as "flush the queue
+        # here" rather than as a target, which is how a specification gets an
+        # update part-way through a step instead of only at the end of one.
+        if t is None:
+            continue
+        qubits = t.get('qubits')
+        # QDrive itself only takes pairs - one qubit raises "not enough values
+        # to unpack" and three raises "too many", several frames deep in a
+        # library the writer of a specification has never heard of.
+        if not isinstance(qubits, list) or len(qubits) != 2:
+            raise Unusable(
+                f'{spec_id} target {i} acts on {qubits!r}; targets take exactly '
+                'two qubits')
+        if any(not isinstance(q, int) or not (0 <= q < n) for q in qubits):
+            raise Unusable(
+                f'{spec_id} target {i} names qubit(s) outside 0-{n - 1}: {qubits}')
+
+    # The seed is what makes a world the same world twice. Deriving it from the
+    # id when absent keeps a hand-written specification reproducible without
+    # making whoever wrote it invent a number.
+    if spec.get('seed') is None:
+        spec['seed'] = zlib.crc32(spec_id.encode('utf-8')) & 0x7fffffff
     return spec
+
+
+def real_targets(spec):
+    """The targets that are actually targets.
+
+    A null entry in the list is not one: the engine reads it as "flush the queue
+    here". It does work, but it draws no gate and constrains no correlation, so
+    nothing that counts or maps targets should see it.
+    """
+    return [t for t in spec['targets'] if t is not None]
 
 
 def info_of(spec):
@@ -202,18 +238,19 @@ def info_of(spec):
     much work happens between readouts.
     """
     n = spec['n']
-    pairs = sorted({tuple(sorted(t['qubits'])) for t in spec['targets']})
+    targets = real_targets(spec)
+    pairs = sorted({tuple(sorted(t['qubits'])) for t in targets})
     return {
         'id': spec['id'],
         'n': n,
-        'gates': len(spec['targets']) * STEPS,
-        'depth': len(spec['targets']) * STEPS,
+        'gates': len(targets) * STEPS,
+        'depth': len(targets) * STEPS,
         'pairs': [list(p) for p in pairs],
         'max_pairs': n * (n - 1) // 2,
         # how many Pauli correlations the specification drives every step - what
         # it actually asks of the world, and the only structural number here
         # that varies much between worlds
-        'constraints': sum(len(t.get('expvals') or {}) for t in spec['targets']),
+        'constraints': sum(len(t.get('expvals') or {}) for t in targets),
         'components': components(n, pairs),
         'fraction': spec.get('fraction'),
         'readouts': STEPS,
@@ -250,12 +287,13 @@ def layers_of(spec, steps):
     specification is thirty entries - the repeating pattern a player can see
     in the plot, with a readout line after each pass.
     """
-    return [[list(t['qubits'])] for _ in range(steps) for t in spec['targets']]
+    return [[list(t['qubits'])]
+            for _ in range(steps) for t in real_targets(spec)]
 
 
 def cuts_for(spec, steps):
     """Where the readouts fall in that map: after every complete pass."""
-    per = len(spec['targets'])
+    per = len(real_targets(spec))
     return [(s + 1) * per for s in range(steps)]
 
 
@@ -358,7 +396,7 @@ def run(spec_id, steps, direction, coherence, invest_at=None, target=None):
     return {
         'info': info_of(spec),
         'cuts': cuts_for(spec, steps),
-        'n_layers': len(spec['targets']) * steps,
+        'n_layers': len(real_targets(spec)) * steps,
         'layers': layers_of(spec, steps),
         'z': z,
         'apparatus': apparatus,
@@ -424,7 +462,7 @@ def op_worlds(req):
         info = info_of(spec)
         info['readouts'] = steps
         info['connected'] = len(info['components']) == 1
-        info['layers_count'] = len(spec['targets']) * steps
+        info['layers_count'] = len(real_targets(spec)) * steps
         key = f'{sid}@{steps}'
         if key not in cache:
             cache[key] = character(sid, steps)
