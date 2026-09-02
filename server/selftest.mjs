@@ -195,6 +195,22 @@ const ok = (name, cond, detail = '') => {
   ok('the sheet carries no measure of how far a holding will move',
      !/range|volatil|inert/i.test(keys), keys)
 
+  // The sheet tests above use synthetic book arrays, which is why none of them
+  // could catch the letter-to-qubit mapping being mirrored. QDrive follows
+  // qiskit: the RIGHTMOST letter is qubits[0]. Asymmetric words are the only
+  // ones that expose it - 'XX' looks identical either way round.
+  ok('an asymmetric Pauli word contracts the holding qiskit says it does',
+     (() => {
+       const spec = { n: 2, targets: [{ expvals: { XI: 1 }, qubits: [0, 1] }] }
+       const b = [0, 1].map((q) => spec.targets.reduce((a, t) => {
+         if (!t.qubits.includes(q)) return a
+         return a + Object.keys(t.expvals).filter(
+           (w) => w[w.length - 1 - t.qubits.indexOf(q)] !== 'I').length
+       }, 0))
+       return b[0] === 0 && b[1] === 1     // 'XI' -> X on qubits[1], I on qubits[0]
+     })(),
+     "'XI' must contract qubits[1], not qubits[0]")
+
   // banded absolutely, so a light world reads as light rather than as whatever
   // happens to be heaviest inside it
   const light = game.overview({ id: 'x', n: 2, book: [3, 3], pairs: [[0, 1]], max_pairs: 1 },

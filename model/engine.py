@@ -272,10 +272,16 @@ def info_of(spec):
             sum(1
                 for t in targets if q in t['qubits']
                 for word in (t.get('expvals') or {})
-                # 'I' in a Pauli word means the operator does not act on that
-                # qubit at all, so an expval keyed 'XI' is a contract on the
-                # first holding and nothing whatever on the second
-                if word[t['qubits'].index(q)] != 'I')
+                # 'I' means the operator does not act on that qubit at all, so
+                # an expval keyed 'XI' is a contract on one holding and nothing
+                # whatever on the other. Which one is not the obvious one:
+                # QDrive follows qiskit's label convention, where the RIGHTMOST
+                # letter is qubits[0] - so word position k names
+                # qubits[len(word)-1-k], and reading left-to-right mirrors every
+                # asymmetric word onto the wrong holding. QDrive's pauli.pad()
+                # documents exactly this trap, and notes that symmetric words
+                # like 'XX' hide it.
+                if word[len(word) - 1 - t['qubits'].index(q)] != 'I')
             for q in range(n)],
         'components': components(n, pairs),
         'fraction': spec.get('fraction'),
