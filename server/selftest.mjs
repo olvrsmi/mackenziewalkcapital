@@ -173,6 +173,36 @@ const ok = (name, cond, detail = '') => {
      game.sceneInvestment(S).some((e) => e.holdings?.length === S.world.info.n))
 }
 
+// --- the sheet --------------------------------------------------------------
+{
+  const info = { id: 'spec_sheet_01', n: 4, book: [0, 3, 6, 12],
+                 pairs: [[0, 1], [1, 2], [2, 3]], max_pairs: 6 }
+  const T = ['AAA', 'BBB', 'CCC', 'DDD']
+  const sheet = game.overview(info, T)
+
+  ok('one row per holding', sheet.length === 4)
+  ok('every row carries a price', sheet.every((h) => /^[\d,]+G$/.test(h.price)))
+  ok('a heavier book reads as more contracted',
+     sheet[0].contracted !== sheet[3].contracted,
+     `${sheet[0].contracted} vs ${sheet[3].contracted}`)
+  ok('exposure names the holdings it is wired to, not indices',
+     sheet[1].exposure === 'AAA, CCC', sheet[1].exposure)
+  ok('a holding wired to nothing says so',
+     game.overview({ ...info, pairs: [] }, T).every((h) => !h.exposed))
+
+  // the whole point: the sheet must not answer the question it is asked around
+  const keys = Object.keys(sheet[0]).join(' ')
+  ok('the sheet carries no measure of how far a holding will move',
+     !/range|volatil|inert/i.test(keys), keys)
+
+  // banded absolutely, so a light world reads as light rather than as whatever
+  // happens to be heaviest inside it
+  const light = game.overview({ id: 'x', n: 2, book: [3, 3], pairs: [[0, 1]], max_pairs: 1 },
+                              ['AAA', 'BBB'])
+  ok('a light world does not read as heavily contracted',
+     light[0].contracted === sheet[1].contracted, light[0].contracted)
+}
+
 // --- pricing --------------------------------------------------------------
 {
   const info = { id: 'spec_test_01', n: 4, book: [1, 4, 4, 9] }

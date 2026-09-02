@@ -46,8 +46,12 @@ function show (emissions, S) {
   for (const e of emissions) {
     if (e.kind === 'text') {
       sent.text++
-      const first = e.text.split('\n')[0].replace(/\*\*/g, '')
-      console.log(`  [text ] ${first.slice(0, 88)}`)
+      const lines = e.text.replace(/\*\*/g, '').split('\n')
+      console.log(`  [text ] ${lines[0].slice(0, 88)}`)
+      // a sheet is the whole message, not its first line
+      if (lines.length > 1 && /the book|Returns|Round /.test(lines[0])) {
+        for (const l of lines.slice(1)) if (l.trim()) console.log(`           ${l.slice(0, 88)}`)
+      }
     } else if (RENDERABLE.has(e.kind)) {
       const png = renderEmission(e)
       sent.photo++; sent.bytes += png.length

@@ -5,7 +5,7 @@
 // goes in front of it later), so `expect` says what the next token means.
 //
 // Emissions are objects the client renders: {kind:'text'} for chat lines and
-// {kind:'traces'|'gatemap'} for visuals, which the client draws itself rather
+// {kind:'traces'} for visuals, which the client draws itself rather
 // than receiving images.
 
 import { callModel } from './model.mjs'
@@ -88,6 +88,46 @@ export function prospectus (info) {
           `${volatility}% expected volatility`,
   }
 }
+/**
+ * Each holding, said the way a market sheet says it.
+ *
+ * Three facts, and deliberately not a fourth. What it costs, how heavily it is
+ * contracted, and who it is exposed to - all true, and none of them says how far
+ * it will move. That last figure exists (per_qubit_range) and is the answer to
+ * the only question the player is really asking, so the sheet does not carry it.
+ * It is found by watching, which is what the readouts are for.
+ *
+ * The banding words come from copy.yaml and the thresholds are derived from how
+ * many there are, so a writer adds or removes a word and the bands re-space
+ * themselves - the same contract as the complexity band above.
+ */
+export function overview (info, holdings) {
+  const words = list('vocabulary.contracted')
+  const books = info.book || []
+  return Array.from({ length: info.n }, (_, q) => {
+    const book = books[q] || 0
+    // An absolute ladder, not a within-world one. Banded against the world's own
+    // heaviest, a light two-holding specification reads as "bound hand and foot"
+    // because something has to be the heaviest in it. Across the set a book runs
+    // 0 to 12, and a light world should say so.
+    let i = words.findIndex((_, k) => book < 2 * Math.pow(1.75, k))
+    if (i === -1) i = words.length - 1
+    const wired = (info.pairs || [])
+      .filter(([a, b]) => a === q || b === q)
+      .map(([a, b]) => holding(a === q ? b : a, holdings))
+    return {
+      holding: holding(q, holdings),
+      price: money(basePrice(info, q)),
+      price_raw: basePrice(info, q),
+      contracted: words[i] || 'unknown',
+      book_raw: book,
+      exposure: wired.join(', '),
+      exposed: wired.length > 0,
+      exposure_count: wired.length,
+    }
+  })
+}
+
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v))
 const norm = (v) => Math.hypot(v[0], v[1], v[2])
 
@@ -278,22 +318,6 @@ function tracesPanel (S, upto, opts = {}) {
   }
 }
 
-function gatemapPanel (S) {
-  return {
-    kind: 'gatemap',
-    n: S.world.info.n,
-    holdings: S.world.holdings,
-    layers: S.clean.layers,
-    cuts: S.clean.cuts,
-    nLayers: S.clean.n_layers,
-    pairs: S.world.info.pairs,
-    title: t('plots.gatemap_title', {
-      world: S.world.name, gates: S.world.info.gates,
-      layers: S.clean.n_layers,
-    }),
-  }
-}
-
 // ---------------------------------------------------------------------------
 // Scenes
 // ---------------------------------------------------------------------------
@@ -360,7 +384,17 @@ export function sceneInvestment (S) {
   const k = S.readoutIndex
   S.expect = 'invest'
   const out = []
-  if (k === 0) out.push(gatemapPanel(S))
+  if (k === 0) {
+    // The sheet replaces the gate map. A picture of the specification's wiring
+    // was a picture of a circuit, and a player is not buying a circuit - the
+    // same structure said as exposures is the market's version of it.
+    out.push(text(t('scenes.overview', {
+      world: S.world.name,
+      opportunities: S.world.info.n,
+      rows: overview(S.world.info, S.world.holdings)
+        .map((h) => t('scenes.overview_row', h)).join('\n'),
+    })))
+  }
   out.push(tracesPanel(S, k))
   out.push(text(t('scenes.investment', {
     world: S.world.name,

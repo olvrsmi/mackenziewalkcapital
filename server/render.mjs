@@ -16,8 +16,6 @@ import { t, holding } from './copy.mjs'
 const INK = '#FFFFFF'      // labels and values
 const DIM = '#AAAAAA'      // axis annotation
 const LINE = '#444444'     // baselines and rules
-const ACCENT = '#00FFFF'   // two-qubit gates
-const ONEQ = '#FF00FF'     // one-qubit gates
 const WARM = '#FFFF00'     // the target, and the intervention marker
 const BG = '#000000'
 
@@ -141,93 +139,19 @@ export function renderTraces ({ n, z, priced, upto, totalReadouts, target = null
 }
 
 /**
- * One column per DAG layer: squares for single-qubit gates, joined dots for
- * two-qubit, dashes for the readout cuts. Legible at any depth, unlike a real
- * gate diagram, and its x axis *is* the layer index so the cuts land exactly.
- */
-export function renderGatemap ({ n, layers, cuts, nLayers, holdings, title }) {
-  const H = 48 + n * 18 + 30
-  return frame(H, title, (ctx, W) => {
-    const padL = 52, padR = 18, padT = 48
-    const plotW = W - padL - padR
-    const D = Math.max(1, nLayers)
-    const x = (l) => padL + (l / D) * plotW
-    const y = (q) => padT + q * 18
-
-    for (let q = 0; q < n; q++) {
-      ctx.strokeStyle = LINE
-      ctx.lineWidth = 1
-      ctx.beginPath()
-      ctx.moveTo(padL, y(q))
-      ctx.lineTo(padL + plotW, y(q))
-      ctx.stroke()
-      ctx.fillStyle = DIM
-      ctx.font = `11px ${MONO}`
-      ctx.textAlign = 'right'
-      ctx.fillText(holding(q, holdings), padL - 10, y(q) + 4)
-    }
-
-    ctx.strokeStyle = 'rgba(255,255,255,.35)'
-    ctx.setLineDash([2, 3])
-    for (const c of cuts) {
-      ctx.beginPath()
-      ctx.moveTo(x(c), padT - 8)
-      ctx.lineTo(x(c), y(n - 1) + 8)
-      ctx.stroke()
-    }
-    ctx.setLineDash([])
-
-    const dense = D > 160
-    layers.forEach((layer, li) => {
-      for (const qs of layer) {
-        if (qs.length === 2) {
-          const a = Math.min(...qs), b = Math.max(...qs)
-          ctx.strokeStyle = ACCENT
-          ctx.globalAlpha = dense ? 0.55 : 0.9
-          ctx.lineWidth = dense ? 0.8 : 1.2
-          ctx.beginPath()
-          ctx.moveTo(x(li), y(a))
-          ctx.lineTo(x(li), y(b))
-          ctx.stroke()
-          ctx.globalAlpha = 1
-          ctx.fillStyle = ACCENT
-          for (const q of [a, b]) {
-            ctx.beginPath()
-            ctx.arc(x(li), y(q), dense ? 1.2 : 2, 0, Math.PI * 2)
-            ctx.fill()
-          }
-        } else if (qs.length === 1) {
-          ctx.fillStyle = ONEQ
-          const s = dense ? 1.6 : 2.8
-          ctx.fillRect(x(li) - s / 2, y(qs[0]) - s / 2, s, s)
-        }
-      }
-    })
-
-    ctx.fillStyle = DIM
-    ctx.font = `11px ${MONO}`
-    ctx.textAlign = 'left'
-    ctx.fillText('layer 0', padL, y(n - 1) + 22)
-    ctx.textAlign = 'right'
-    ctx.fillText(`${D}  .  ${t('plots.gatemap_legend')}`,
-                 padL + plotW, y(n - 1) + 22)
-  })
-}
-
-/**
  * The one place an emission becomes a picture.
  *
  * Two callers draw plots - the bot and the dry run - and each used to spell out
  * the same argument lists. A field added to a plot had to be added in both, and
  * a plot changed in one drifted silently from the other. Worse, the dry run's
  * dispatch was an if/else on 'traces': anything that was not a traces emission
- * was handed to renderGatemap, so an unrecognised kind came out as the wrong
- * picture rather than as an error.
+ * was handed to the gate-map renderer, so an unrecognised kind came out as
+ * the wrong picture rather than as an error.
  *
  * RENDERABLE lets a caller ask "is this mine to draw?" without repeating the
  * list, so an emission kind nobody draws is loud instead of lost.
  */
-export const RENDERABLE = new Set(['traces', 'gatemap'])
+export const RENDERABLE = new Set(['traces'])
 
 export function renderEmission (e) {
   switch (e.kind) {
@@ -236,11 +160,6 @@ export function renderEmission (e) {
         n: e.n, z: e.z, priced: e.priced, upto: e.upto,
         totalReadouts: e.totalReadouts,
         target: e.target, interventionAt: e.interventionAt,
-        holdings: e.holdings, title: e.title,
-      })
-    case 'gatemap':
-      return renderGatemap({
-        n: e.n, layers: e.layers, cuts: e.cuts, nLayers: e.nLayers,
         holdings: e.holdings, title: e.title,
       })
     default:

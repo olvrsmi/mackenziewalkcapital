@@ -40,6 +40,15 @@ scenes:
     {volatility}% expected volatility{#if disconnected}
     _Holdings here do not all connect._{/if}
 
+  # {world} {rows} {opportunities}
+  overview: |
+    **{world}** — the book
+
+    {rows}
+
+  # one row per holding: {holding} {price} {contracted} {exposure} {exposed}
+  overview_row: "`{holding}`  {price} · {contracted}{#if exposed} · exposed to {exposure}{:else} · exposed to nothing{/if}"
+
   # {world} {progress} {total} {coherence} {balance} {last_chance}
   investment: |
     **{world}** — {moment} (estimated length: {total})
@@ -197,6 +206,16 @@ vocabulary:
   holding: "E{index}"
   moment: "t{index}"
 
+  # How heavily a holding is contracted - its share of what the specification
+  # asks of the world. Least to most; add or remove a word and the bands
+  # re-space themselves.
+  contracted:
+    - unencumbered
+    - lightly contracted
+    - contracted
+    - heavily contracted
+    - bound hand and foot
+
   complexity:
     - simple
     - moderate
@@ -208,13 +227,11 @@ vocabulary:
 # glyphs or angle brackets, so keep them to plain ASCII.
 plots:
   # {world} {gates} {layers}
-  gatemap_title: "{world}"
   # from ^ - {gates} gates over {layers} layers
   # {world} {progress}
   traces_title: "{world} - {moment}"
   # {world} {target} {change}
   traces_running: "{world} - {holding} running {change}"
-  gatemap_legend: "[] 1-qubit  o-o 2-qubit  : readouts"
   traces_legend: "quote in G, own scale per holding"
 
 # The places a player may be offered. Add, cut and rename freely.
