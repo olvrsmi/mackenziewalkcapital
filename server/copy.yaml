@@ -439,7 +439,23 @@ sequences:
         _Hands over lanyard_
 
         Thats you, although if they're not checking down there then you can just
-        use it to... Anyway this way.
+        use it to... 
+      choices:
+        a:
+          label: Grab the card excitedly
+          art: himbo
+          speaker: Himbo
+          reply: |
+            Anyway, this way.
+        b:
+          label: Slowly take the card
+          art: himbo
+          speaker: Himbo
+          reply: |
+            Yea, I don't trust the chips either
+            
+    -  text: |
+        _You follow him to the lift_
 
     - art: lift_closed
       choices:

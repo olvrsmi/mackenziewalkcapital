@@ -27,9 +27,15 @@ loadCopy({ quiet: true })
 const game = await import('./game.mjs')
 const S = game.newSession(11)
 await game.boot(S)
-// 'a' answers the intro's one choice - the scene has the floor at boot, and
-// playing through it is also what exercises its copy
-const script = ['a', '1', 'o', 'i', '250', '1', '4']
+const script = ['1', 'o', 'i', '250', '1', '4']
+// The opening scene has the floor at boot, and walking it is what exercises its
+// copy. Generically: the script is a writer's file, so answer whatever it offers
+// rather than assuming which choices exist.
+let guard = 0
+while (game.inSequence(S) && guard++ < 40) {
+  const offered = game.sequenceChoices(S)
+  await game.handle(S, offered.length ? offered[0].token : 'Ojs')
+}
 for (const tok of script) await game.handle(S, tok)
 if (S.run) { S.run.startedMs -= 3600_000; let d = false
   while (!d) d = game.step(S).done }

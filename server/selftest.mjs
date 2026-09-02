@@ -323,6 +323,15 @@ const ok = (name, cond, detail = '') => {
      S.seq.awaiting === 'choice', String(S.seq?.awaiting))
   ok('offering however many choices the writer wrote',
      game.sequenceChoices(S).length >= 2, String(game.sequenceChoices(S).length))
+  // Delivery, not the engine: an art emission may carry its line, but the bot
+  // must send them as two messages. A caption makes Telegram fit the photo to
+  // the text width, which stretches a portrait. Read from the source, since
+  // this path needs Telegram to exercise.
+  const botSrc = await readFile(new URL('./bot.mjs', import.meta.url), 'utf8')
+  const artSend = botSrc.slice(botSrc.indexOf("e.kind === 'art'"))
+  const upTo = artSend.slice(0, artSend.indexOf('RENDERABLE.has'))
+  ok('a picture is sent without a caption, and its line follows separately',
+     !/caption: cap/.test(upTo) && /sendMessage\(chatId, cap/.test(upTo))
   ok('art travels as its own emission',
      opening.emissions.some((e) => e.kind === 'art'))
   ok('and is paced, so a burst does not arrive all at once',
@@ -335,7 +344,13 @@ const ok = (name, cond, detail = '') => {
      'a game command must not get through a running scene')
   ok('and says so', /still talking/i.test(nudged.emissions[0]?.text || ''))
 
-  const after = await game.handle(S, 'a')
+  // walked generically: the script is a writer's file and its shape will change
+  let guard = 0
+  let after = { emissions: [] }
+  while (game.inSequence(S) && guard++ < 40) {
+    const offered = game.sequenceChoices(S)
+    after = await game.handle(S, offered.length ? offered[0].token : 'Tester')
+  }
   ok('answering plays the branch and carries on',
      !game.inSequence(S) && S.seqSeen.includes('intro'))
   ok('then the game arrives', after.emissions.some((e) => /Round/.test(e.text || '')))

@@ -28,6 +28,8 @@ const sent = { text: 0, photo: 0, captions: 0, unknown: 0, art: 0,
 // the same mapping bot.mjs uses, kept in step by importing nothing from it:
 // buttons are just the tokens a player could type
 function buttonsFor (S) {
+  const scene = game.sequenceChoices(S)
+  if (scene.length) return scene.map((c) => c.label)
   switch (S.expect) {
     case 'world': return [...(S.worlds || []).map((w, i) =>
       `${i + 1}. ${w.name} — ${w.info.n} opportunities`), 'Marketplace']
@@ -59,10 +61,12 @@ function show (emissions, S) {
       sent.art++
       if (!file) sent.artMissing.add(e.art)
       console.log(`  [art   ] ${e.art}${file ? '' : '  (no file yet)'}`)
+      // shown as the two messages it now is, not as one with a caption
       if (e.caption) {
-        for (const l of e.caption.replace(/\*\*/g, '').split('\n')) {
-          if (l.trim()) console.log(`           ${l.slice(0, 88)}`)
-        }
+        sent.text++
+        const lines = e.caption.replace(/\*\*/g, '').split('\n').filter((l) => l.trim())
+        lines.forEach((l, n) => console.log(
+          `  ${n === 0 ? '[text  ]' : '        '} ${l.slice(0, 88)}`))
       }
     } else if (RENDERABLE.has(e.kind)) {
       const png = renderEmission(e)
@@ -103,7 +107,14 @@ show((await game.boot(S)).emissions, S)
 // The intro has the floor at boot, so walk through it rather than have the
 // first token bounced off a scene. Playing it rather than skipping it is the
 // point: this is the only harness that shows what the opening looks like.
-await say(S, 'a')
+//
+// Generically, not with a hardcoded 'a': the script is a writer's file and the
+// number and position of its choices will change. Answer whatever it offers.
+let scenes = 0
+while (game.inSequence(S) && scenes++ < 40) {
+  const offered = game.sequenceChoices(S)
+  await say(S, offered.length ? offered[0].token : 'Ojs')
+}
 await say(S, '1')
 await say(S, 'o')
 await say(S, 'i')

@@ -212,8 +212,17 @@ async function deliver (chatId, emissions, S, { keyboard = true } = {}) {
         logEvent('art_missing', { chat: chatId, art: e.art })
       } else {
         await bot.api.sendChatAction(chatId, 'upload_photo').catch(() => {})
+        // The picture goes on its own and the line follows as its own message.
+        // A caption makes Telegram fit the photo to the text's width, which
+        // stretches a small portrait or pads it with a blurred background - so
+        // scene art is never captioned. The keyboard rides the last message
+        // either way, which is the line when there is one.
         await sendWithRetry(() => bot.api.sendPhoto(chatId, new InputFile(file),
-          { reply_markup, ...(cap ? { caption: cap, parse_mode: 'HTML' } : {}) }), chatId)
+          cap ? {} : { reply_markup }), chatId)
+        if (cap) {
+          await sendWithRetry(() => bot.api.sendMessage(chatId, cap,
+            { parse_mode: 'HTML', reply_markup }), chatId)
+        }
       }
     } else if (RENDERABLE.has(e.kind)) {
       await bot.api.sendChatAction(chatId, 'upload_photo').catch(() => {})
