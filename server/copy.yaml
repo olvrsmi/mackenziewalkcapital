@@ -357,39 +357,32 @@ worlds:
 # ---------------------------------------------------------------------------
 beats:
   schedule:
-    1: arrival
-    3: the_oldhead
-    6: the_himbo
+    2: change1
+    3: the_himbo
+    4: change2
 
   # {day} {budget} {attempt}
-  arrival: |
-    **A hand you don't shake.**
+  change1: |
+    _[your mouse feels different today, not massively but the texture's changed. Is it a bit heavier too?]_
 
-    Someone has left a terminal on at 4B and gone. The chair is still warm.
-    {budget} of the firm's money is on the desk in front of you, and nobody has
-    said for how long.
-
-  the_oldhead:
+  change2:
     text: |
-      **The oldhead stops at your desk.**
+      **Gerald stops at your desk.**
 
-      He watches two readouts without saying anything, then: "You're couplin' on
-      the open. Everyone does, first week."
+      You're a wizz on that machine, huh. How's it going newbie?"
     choices:
       a:
-        label: Ask what he'd do
+        label: Ask him if he knows who switched your mouse
         reply: |
-          "Wait for the second print." He is already walking away. "The first one
-          lies to everybody equally."
+          "Hahaha. Why would someone do that? I told you to make sure you invested at a distance, didn't I?"
         coherence: 0.04
       b:
-        label: Say nothing
+        label: Respond with similar platitudes
         reply: |
-          He nods once, as though you had passed something, and goes.
-
+          Head's still in the game, huh? No bother, but do watch out for things starting to feel different.
   the_himbo:
     text: |
-      **The himbo has a theory.**
+      **Daniel has a theory.**
 
       "So right — the CHEAP ones. Nobody's watching the cheap ones." He is
       delighted. He has been here four months.
@@ -409,8 +402,6 @@ beats:
     - _Nobody looks up when you sit down._
     - _The terminal remembers your layout. Somebody's does, anyway._
     - _Someone has left a coffee on 4B. It is not yours and it is not warm._
-    - _The oldhead is at his own desk today, and stays there._
-    - _A cleaner works around you without asking you to move._
 
 # ---------------------------------------------------------------------------
 # Sequences — scripted scenes, played a node at a time.
@@ -484,12 +475,13 @@ sequences:
 
     -  text: |
         ...
-
+    
+    - text: | 
+        _ding_ 
+    
     - text: |
         Catch you on a drinkfood break maybe, have a good one.
 
-    - text: | 
-        _ding_ 
     - text: |
         _[The lift creaks into place and the doors open, 12 industrial revolutions down and we still haven't got the one that solves for general maintenance. You step in.]_
 
@@ -511,22 +503,24 @@ sequences:
   # Specified later. An empty sequence simply does not play, so this can sit
   # here unfinished without affecting anything.
   tutorial: 
-    - text: |
-        _[You stepo out at floor 17 and fail to orient yourself, only when you pass the lift for the 4th or 5th time do you spot the door to office 178.]_
+    - text: _[You step out at floor 17 and fail to orient yourself, only when you pass the lift for the 4th or 5th time do you spot the door to office 178.]_
 
-        _[You push open the door and see Gerald stood staring out the window, he's the only other person in there]_
+    - text: _[You push open the door and see Gerald stood staring out the window, he's the only other person in there]_
       choices:
         a:
-          label: "Say 'hi'"
-          art: oldhead
+          label: "Say 'hi'"        
           speaker: Gerald
           reply: |
             ...
         b:
           label: "Look for desk B"
-          art: oldhead
           speaker: Gerald
           reply: |
             ...
-   
 
+    - text: _[You sit down at desk B and boot the terminal. You scan your pass when prompted, input the second and third factor authentications from your phone and watch, and put your first three fingers in the scanner]_
+
+    - art: oldhead
+      speaker: Gerald
+      text: |
+        Hey newbie. Start off watching the founder welcome or i’ll be in the shit
