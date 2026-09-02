@@ -329,3 +329,83 @@ worlds:
   - Social Note
   - Audio Grace
   - Limbs Send
+
+# ---------------------------------------------------------------------------
+# Beats — the scripted moments of the probation week.
+#
+# A SETPIECE is keyed to a day and fires once, ever, when that day of probation
+# begins. `schedule` says which beat belongs to which day; a day with no entry
+# passes without one.
+#
+# Choices colour the reply and nothing else: the player picks, the beat answers,
+# and the game is where it was. They may carry a small effect - `coherence` as a
+# delta, `unlock` as a marketplace item id - and those apply when the choice is
+# taken. Put an effect on the beat itself to have it apply however they answer.
+#
+# Choices are keyed rather than listed (a, b, c...) because the key is the token
+# the player replies with, and because copy-check can only see inside objects -
+# a list of choices would ship unvalidated.
+#
+# A beat can arrive mid-round. It does not interrupt a position: the readouts
+# keep coming and the choice can be answered whenever.
+#
+# `again` is for a desk having another go. Probation setpieces fire once ever,
+# so a second attempt would otherwise be silent - these are the sound of a
+# floor that carries on. One is picked at random.
+# ---------------------------------------------------------------------------
+beats:
+  schedule:
+    1: arrival
+    3: the_oldhead
+    6: the_himbo
+
+  # {day} {budget} {attempt}
+  arrival: |
+    **A hand you don't shake.**
+
+    Someone has left a terminal on at 4B and gone. The chair is still warm.
+    {budget} of the firm's money is on the desk in front of you, and nobody has
+    said for how long.
+
+  the_oldhead:
+    text: |
+      **The oldhead stops at your desk.**
+
+      He watches two readouts without saying anything, then: "You're couplin' on
+      the open. Everyone does, first week."
+    choices:
+      a:
+        label: Ask what he'd do
+        reply: |
+          "Wait for the second print." He is already walking away. "The first one
+          lies to everybody equally."
+        coherence: 0.04
+      b:
+        label: Say nothing
+        reply: |
+          He nods once, as though you had passed something, and goes.
+
+  the_himbo:
+    text: |
+      **The himbo has a theory.**
+
+      "So right — the CHEAP ones. Nobody's watching the cheap ones." He is
+      delighted. He has been here four months.
+    choices:
+      a:
+        label: Humour him
+        reply: |
+          "See, you get it." He tells three other people you agreed with him.
+      b:
+        label: Point at the quota
+        reply: |
+          "Oh, the quota." His face does something complicated. "Yeah. No, the
+          quota's the thing, isn't it."
+
+  # A desk on its second attempt or later. Randomised, and deliberately small.
+  again:
+    - _Nobody looks up when you sit down._
+    - _The terminal remembers your layout. Somebody's does, anyway._
+    - _Someone has left a coffee on 4B. It is not yours and it is not warm._
+    - _The oldhead is at his own desk today, and stays there._
+    - _A cleaner works around you without asking you to move._

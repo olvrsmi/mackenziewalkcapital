@@ -220,6 +220,15 @@ export const holding = (index, names) =>
   names?.[index] ?? t('vocabulary.holding', { index })
 export const moment = (index) => t('vocabulary.moment', { index })
 
+/**
+ * The raw value at a key, template unrendered - an object, an array, anything.
+ *
+ * `t()` renders and `list()` flattens; a scripted beat needs neither. It needs
+ * to know which choices exist before it renders any of them, which means
+ * reading the shape a writer authored rather than a string.
+ */
+export const section = (key) => lookup(key)
+
 export { lookup as _lookup, COPY as _copy }
 export const allKeys = () => {
   const out = []

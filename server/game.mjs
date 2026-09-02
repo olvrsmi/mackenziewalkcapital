@@ -11,7 +11,7 @@
 import { callModel } from './model.mjs'
 import { gameSeconds, realMs, describeGame, describeReal, GAME_DAY_SECONDS }
   from './time.mjs'
-import { t, list, holding, moment } from './copy.mjs'
+import { t, list, section, holding, moment } from './copy.mjs'
 
 // How many times a world is stepped. A specification has no natural end - it
 // would keep being applied forever - so this is the whole answer to "how long
@@ -157,6 +157,9 @@ export function newSession (seed = Date.now()) {
     // a new desk has a week to prove itself before it is a desk
     probation: PROBATION,
     attempts: 1,
+    beatsSeen: [],           // a setpiece fires once, ever
+    beat: null,              // a choice waiting to be answered
+    unlocked: [],            // marketplace items a beat has opened up
     bonus: 0,                 // personal, cannot be staked
     history: [START_BUDGET],
     rounds: 0,
@@ -490,6 +493,8 @@ export async function boot (S) {
       })),
       ...sceneMain(S),
       ...offerWorlds(S, rnd),
+        // day one has no day-close before it to ride on
+        ...fireBeat(S),
     ],
   }
 }
@@ -579,9 +584,16 @@ export async function handle (S, raw, emit = null) {
   // after an absence closes the whole gap. The wake timer normally gets there
   // first; this covers a bot that was down while the clock ran.
   if (S.expect !== 'running') pre.push(...catchUpDays(S).emissions)
+
   let preSent = false
   const out = (...e) => ({ emissions: [...(preSent ? [] : pre), ...e.flat()] })
   const cmd = String(raw || '').trim().toLowerCase()
+
+  // A pending beat is answered before anything else looks at the command, and
+  // does not touch `expect` - so it can be answered mid-position, and a command
+  // that is not one of its choices falls through to the game untouched.
+  const answered = answerBeat(S, cmd)
+  if (answered) return out(answered)
 
   if (!cmd) return out(text(t('prompts.say_something')))
   if (cmd === 'help' || cmd === '?') return out(text(t('prompts.help')))
@@ -950,6 +962,93 @@ function settle (S, { closeRound = true } = {}) {
 }
 
 /** Close the books, pay any weekly bonus, and hand out tomorrow's budget. */
+// ---------------------------------------------------------------------------
+// Beats
+//
+// A setpiece belongs to a day of the probation week and fires once, ever, when
+// that day begins. A beat may arrive mid-round: it does not interrupt a
+// position, and a pending choice can be answered whenever - which is why an
+// answer is checked before the ordinary dispatch and leaves `expect` alone.
+//
+// Choices colour the reply and nothing else, so there is no flag namespace and
+// no branching to keep track of. What a choice may do is carry a small effect,
+// and the same two are all a beat itself may carry.
+// ---------------------------------------------------------------------------
+
+/** Which day of the current week this is, 1-based. */
+export const weekDay = (S) => (S.week?.length ?? 0) + 1
+
+/**
+ * The beat due right now, or null. A setpiece if this day of probation has one
+ * and the player has not seen it; otherwise, on a repeat attempt, one of the
+ * `again` lines - a second week would be silent without them, because a
+ * setpiece fires once ever and not once per attempt.
+ */
+export function beatDue (S) {
+  if (!S.probation) return null
+  const schedule = section('beats.schedule') || {}
+  const id = schedule[String(weekDay(S))]
+  if (id && !(S.beatsSeen || []).includes(id)) return { id, kind: 'setpiece' }
+  if ((S.attempts || 1) > 1) return { id: null, kind: 'again' }
+  return null
+}
+
+/** Apply a beat's or a choice's effects. Only two things a beat may touch. */
+function applyBeat (S, spec) {
+  if (!spec || typeof spec !== 'object') return
+  if (typeof spec.coherence === 'number') {
+    S.coherence = clamp(S.coherence + spec.coherence, 0, 1)
+  }
+  if (spec.unlock) {
+    S.unlocked = [...new Set([...(S.unlocked || []), spec.unlock])]
+  }
+}
+
+/**
+ * Fire the due beat, if any. A setpiece with choices leaves itself pending on
+ * the session so the reply can be matched later; one without is simply said.
+ */
+export function fireBeat (S) {
+  const due = beatDue(S)
+  if (!due) return []
+  if (due.kind === 'again') return [text(t('beats.again'))]
+
+  const spec = section(`beats.${due.id}`)
+  S.beatsSeen = [...(S.beatsSeen || []), due.id]
+  // a beat is either a bare template or an object with text, choices, effects
+  applyBeat(S, spec)
+  const out = [text(t(typeof spec === 'string' ? `beats.${due.id}` : `beats.${due.id}.text`, {
+    day: weekDay(S), budget: money(S.budget), attempt: S.attempts || 1,
+  }))]
+  if (spec && spec.choices) S.beat = due.id
+  return out
+}
+
+/** The choices a pending beat is waiting on, as {token, label} - or none. */
+export function beatChoices (S) {
+  if (!S.beat) return []
+  const spec = section(`beats.${S.beat}.choices`)
+  return Object.entries(spec || {}).map(([token, c]) => ({ token, label: c.label }))
+}
+
+/**
+ * Answer a pending beat. Returns emissions, or null if `cmd` is not one of its
+ * choices - in which case the caller carries on as though no beat were pending,
+ * so a beat never swallows a game command.
+ */
+export function answerBeat (S, cmd) {
+  if (!S.beat) return null
+  const spec = section(`beats.${S.beat}.choices`)
+  const choice = spec && spec[String(cmd).trim().toLowerCase()]
+  if (!choice) return null
+  const id = S.beat
+  S.beat = null
+  applyBeat(S, choice)
+  return [text(t(`beats.${id}.choices.${String(cmd).trim().toLowerCase()}.reply`, {
+    coherence: S.coherence.toFixed(3),
+  }))]
+}
+
 /**
  * Close every day that has elapsed, not just the one.
  *
@@ -999,6 +1098,10 @@ export function endOfDay (S) {
     floored: r.next === BUDGET_FLOOR,
     floor: money(BUDGET_FLOOR),
   }))]
+  // The day that has just begun may have a setpiece. It goes out after the
+  // accounting, because the accounting is what ended the day before it.
+  const beat = fireBeat(S)
+
   if (r.weekTotal !== null) {
     // On probation the week is a verdict, not an accounting - a different
     // message entirely, because "no bonus this week" is not what has happened.
@@ -1014,7 +1117,7 @@ export function endOfDay (S) {
       coherence: S.coherence.toFixed(3),
     })))
   }
-  return out
+  return [...out, ...beat]
 }
 
 function endRound (S) {

@@ -303,6 +303,56 @@ const ok = (name, cond, detail = '') => {
      week([0, 0, 0, 0, 0, 0, 0]).last.verdict === 'failed')
 }
 
+// --- beats -----------------------------------------------------------------
+{
+  const S = game.newSession(77)
+  ok('a new desk is on probation', S.probation === true)
+
+  // day one rides boot, so it has already fired by the time we look
+  await game.boot(S)
+  ok('the day-one setpiece fires at boot, not on the first day close',
+     S.beatsSeen.includes('arrival'), JSON.stringify(S.beatsSeen))
+  ok('and only once', game.beatDue(S) === null)
+
+  // a setpiece with choices leaves itself pending
+  S.week = [1, 2]
+  const fired = game.fireBeat(S)
+  ok('a scheduled setpiece fires on its day', fired.length === 1)
+  ok('one with choices waits for an answer', S.beat === 'the_oldhead', String(S.beat))
+  ok('and offers them', game.beatChoices(S).length === 2)
+
+  // effects apply, clamped
+  S.coherence = 0.4
+  const before = S.coherence
+  await game.handle(S, 'a')
+  ok('a choice may spend or restore coherence', S.coherence > before,
+     `${before} -> ${S.coherence}`)
+  ok('answering clears the beat', S.beat === null)
+
+  // a command that is not one of its choices must reach the game
+  S.week = [1, 2, 3, 4, 5]
+  game.fireBeat(S)
+  const pending = S.beat
+  ok('a beat is pending', pending !== null)
+  await game.handle(S, 'state')
+  ok('a non-choice command falls through to the game', S.beat === pending,
+     'the beat must not swallow a game command')
+
+  // a beat can be answered mid-position, without disturbing it
+  S.expect = 'running'
+  await game.handle(S, 'a')
+  ok('a beat can be answered mid-position', S.beat === null)
+  ok('and answering does not disturb the run', S.expect === 'running')
+
+  // a second attempt has spent its setpieces, so something else has to speak
+  const again = game.newSession(78)
+  again.attempts = 2
+  again.beatsSeen = ['arrival', 'the_oldhead', 'the_himbo']
+  const line = game.fireBeat(again)
+  ok('a repeat attempt still hears something', line.length === 1 && line[0].text)
+  ok('and it is not a setpiece', !again.beat)
+}
+
 // --- the clock keeps running -------------------------------------------------
 {
   const S = game.newSession(9)

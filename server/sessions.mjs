@@ -91,6 +91,11 @@ function migrate (S) {
     S.probation = false
     S.attempts = 1
   }
+  // A save from before beats existed has seen none of them - but it is also
+  // past probation, so none are due either.
+  S.beatsSeen ??= []
+  S.beat ??= null
+  S.unlocked ??= []
 
   if (!S.run) return
   if (S.run.exitAt === undefined) {

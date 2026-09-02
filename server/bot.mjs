@@ -71,6 +71,14 @@ function toHtml (s) {
 
 function keyboardFor (S) {
   const k = new InlineKeyboard()
+  // A pending beat's choices come first and sit on their own row. They are
+  // offered whatever the game state is, including mid-position, because a beat
+  // does not interrupt a run and its choice can be answered whenever.
+  const beat = game.beatChoices(S)
+  if (beat.length) {
+    for (const c of beat) k.text(c.label, c.token)
+    k.row()
+  }
   switch (S.expect) {
     case 'world': {
       (S.worlds || []).forEach((w, i) => {
