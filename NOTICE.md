@@ -34,3 +34,14 @@ reports why for each.
 repository. The npm dependencies (`grammy`, `@napi-rs/canvas`) are MIT-licensed
 and pulled at install time rather than vendored. **No licence has been chosen for them yet** — pick one before
 making the repository public, or it is all-rights-reserved by default.
+
+## Roboto Condensed and Roboto Mono — `server/fonts/`
+
+Copyright Google. Licensed under the SIL Open Font License 1.1 — see
+`server/fonts/OFL-RobotoCondensed.txt` and `server/fonts/OFL-RobotoMono.txt`.
+
+Upstream: https://github.com/google/fonts/tree/main/ofl
+
+The variable-weight `.ttf` files, unmodified. Vendored rather than installed on
+the host, because a box without them would silently fall back to whatever it did
+have and draw a different chart than the one designed here.

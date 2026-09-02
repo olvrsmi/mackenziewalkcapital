@@ -2,29 +2,53 @@
 //
 // A port of the canvas drawing from the browser prototype's client. The bot has
 // no client to draw in, so the same 2D-context code runs here against
-// @napi-rs/canvas and the result is uploaded. Colours are the harsh saturated
-// set on black: ZX Spectrum brights read at phone size in a way that a muted
-// palette does not.
+// @napi-rs/canvas and the result is uploaded.
+//
+// Colours are the vim-bloomberg palette - the terminal's own amber over a set of
+// saturated hues that stay apart from each other at phone size. Amber is
+// reserved: it is the chrome and the holding you are actually in, never an
+// ordinary series, so the thing you hold is the only amber line on a screen that
+// is otherwise amber-framed.
 //
 // Keep captions to ASCII: the bundled font has no mathematical angle brackets
 // (U+27E8/27E9) or box-drawing glyphs, and renders them as tofu.
 
-import { createCanvas } from '@napi-rs/canvas'
+import { createCanvas, GlobalFonts } from '@napi-rs/canvas'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 import { t, holding } from './copy.mjs'
 
-const INK = '#FFFFFF'      // labels and values
-const DIM = '#AAAAAA'      // axis annotation
-const LINE = '#444444'     // baselines and rules
-const WARM = '#FFFF00'     // the target, and the intervention marker
-const BG = '#000000'
+// Vendored rather than left to the host: a box with no Roboto would silently
+// fall back to whatever it does have, and the chart would be a different chart
+// there than the one that was designed here. Both are SIL Open Font License.
+const FONTS = join(dirname(fileURLToPath(import.meta.url)), 'fonts')
+for (const file of ['RobotoCondensed[wght].ttf', 'RobotoMono[wght].ttf']) {
+  try {
+    GlobalFonts.registerFromPath(join(FONTS, file))
+  } catch {
+    // A missing font is a worse-looking chart, not a dead bot.
+    console.warn(`  render: could not load ${file}; falling back to a system font`)
+  }
+}
 
-const QCOL = ['#FF0000', '#00FF00', '#0000FF', '#FF00FF', '#00FFFF',
-              '#FFFF00', '#FFFFFF', '#FF8000', '#8000FF', '#00FF80']
+const BG = '#000000'
+const INK = '#F6F3E8'      // values and labels: the palette's off-white
+const DIM = '#909090'      // axis annotation
+const LINE = '#202020'     // baselines and rules
+const AMBER = '#F39000'    // the terminal's own: chrome, and the held holding
+
+// Seven, because a world runs to seven holdings, and chosen to stay apart from
+// each other AND from amber, which is spoken for.
+const QCOL = ['#FF6C60', '#A8FF60', '#96CBFE', '#FF73FD',
+              '#E0C010', '#00A0A0', '#C6C5FE', '#E18964',
+              '#0B85DF', '#B18A3D']
 const qcol = (q) => QCOL[q % QCOL.length]
 
-const MONO = '"Courier New", Courier, monospace'
-const SANS = 'Arial, Helvetica, sans-serif'
+// Roboto Mono for every number and chart label, so figures line up in columns;
+// Roboto Condensed for the header, which has to fit a world's name at 640px.
+const MONO = '"Roboto Mono", "Courier New", monospace'
+const SANS = '"Roboto Condensed", Arial, sans-serif'
 
 // Telegram scales photos to the chat width, so render at 2x for a crisp result
 const SCALE = 2
@@ -36,11 +60,11 @@ function frame (height, title, draw) {
   ctx.scale(SCALE, SCALE)
   ctx.fillStyle = BG
   ctx.fillRect(0, 0, WIDTH, height)
-  ctx.fillStyle = INK
-  ctx.font = `bold 12px ${SANS}`
+  ctx.fillStyle = AMBER
+  ctx.font = `bold 13px ${SANS}`
   ctx.textAlign = 'left'
   ctx.fillText(title.toUpperCase(), 14, 22)
-  ctx.strokeStyle = INK
+  ctx.strokeStyle = AMBER
   ctx.lineWidth = 1
   ctx.beginPath()
   ctx.moveTo(0, 32)
@@ -64,10 +88,10 @@ export function renderTraces ({ n, z, priced, upto, totalReadouts, target = null
     const x = (k) => padL + (k / total) * plotW
 
     if (interventionAt !== null) {
-      ctx.fillStyle = 'rgba(255,255,0,.10)'
+      ctx.fillStyle = 'rgba(243,144,0,.10)'
       ctx.fillRect(x(interventionAt), padT - 8,
                    x(total) - x(interventionAt), n * 26 + 10)
-      ctx.strokeStyle = WARM
+      ctx.strokeStyle = AMBER
       ctx.setLineDash([3, 3])
       ctx.beginPath()
       ctx.moveTo(x(interventionAt), padT - 8)
@@ -88,7 +112,7 @@ export function renderTraces ({ n, z, priced, upto, totalReadouts, target = null
       ctx.lineTo(padL + plotW, yMid)
       ctx.stroke()
 
-      ctx.fillStyle = isTarget ? WARM : DIM
+      ctx.fillStyle = isTarget ? AMBER : DIM
       ctx.font = `${isTarget ? 'bold ' : ''}12px ${MONO}`
       ctx.textAlign = 'right'
       ctx.fillText(holding(q, holdings), padL - 10, yMid + 4)
@@ -120,7 +144,7 @@ export function renderTraces ({ n, z, priced, upto, totalReadouts, target = null
 
       // the number beside the line is the quote itself, not a normalised one
       const now = raw[raw.length - 1]
-      ctx.fillStyle = isTarget ? WARM : INK
+      ctx.fillStyle = isTarget ? AMBER : INK
       ctx.textAlign = 'left'
       ctx.font = `${isTarget ? 'bold ' : ''}12px ${MONO}`
       ctx.fillText(priced ? Math.round(now).toLocaleString('en-GB')

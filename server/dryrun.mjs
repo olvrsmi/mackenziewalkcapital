@@ -49,7 +49,7 @@ function show (emissions, S) {
       const lines = e.text.replace(/\*\*/g, '').split('\n')
       console.log(`  [text ] ${lines[0].slice(0, 88)}`)
       // a sheet is the whole message, not its first line
-      if (lines.length > 1 && /the book|Returns|Round /.test(lines[0])) {
+      if (lines.length > 1 && /listings|Returns|Round /.test(lines[0])) {
         for (const l of lines.slice(1)) if (l.trim()) console.log(`           ${l.slice(0, 88)}`)
       }
     } else if (RENDERABLE.has(e.kind)) {

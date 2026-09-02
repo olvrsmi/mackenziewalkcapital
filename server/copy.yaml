@@ -42,7 +42,7 @@ scenes:
 
   # {world} {rows} {opportunities}
   overview: |
-    **{world}** — the book
+    **{world}** — listings
 
     {rows}
 
