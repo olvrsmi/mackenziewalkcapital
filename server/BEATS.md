@@ -107,9 +107,23 @@ wherever it wants something from the player. Everything up to that stop is sent
 in one burst, a beat apart, with a typing indicator — so it reads as someone
 talking rather than as four messages at once. `MW_PACE_MS` sets the gap.
 
-They live under `sequences:` in `copy.yaml`. `intro` plays at a first `/start`,
-in place of `scenes.welcome`. `tutorial` is there and empty; an empty sequence
-simply does not play, so it can sit unfinished.
+They live under `sequences:` in `copy.yaml`. Which of them make up a first
+sitting, and in what order, is the `opening:` list:
+
+```yaml
+opening:
+  - intro
+  - tutorial
+```
+
+Each plays once. When one ends the next begins, and when the last is done the
+game starts — there is no chaining in the engine, so adding a third scene to the
+opening is a copy edit and nothing else. Together they stand in place of
+`scenes.welcome`, which is not shown to anyone who was walked in.
+
+A scene named in `opening` that has no nodes yet is skipped, so one can be
+declared before it is written. `skip` skips the whole opening rather than one
+scene of it.
 
 ## A node
 

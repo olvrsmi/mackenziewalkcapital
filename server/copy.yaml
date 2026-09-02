@@ -426,75 +426,107 @@ beats:
 # `art` names a file in server/art/. A name with no file is skipped silently, so
 # a scene can be written before it is drawn.
 # ---------------------------------------------------------------------------
+# The scenes of a first sitting, in order. Each plays once; when one ends the
+# next begins, and when the last is done the game starts. Add a scene here and
+# it joins the opening - the engine does no chaining of its own.
+opening:
+  - intro
+  - tutorial
+
 sequences:
   intro:
-    - art: tower
-
     - art: himbo
-      speaker: Himbo
+      speaker: Daniel
       text: |
         There you are, you made it past security. I should tell them to sharpen
         up haha
 
-        _Hands over lanyard_
-
-        Thats you, although if they're not checking down there then you can just
-        use it to... 
+        _Holds out lanyard_
       choices:
         a:
-          label: Grab the card excitedly
-          art: himbo
-          speaker: Himbo
+          label: Take it, quickly
+          speaker: Daniel
           reply: |
-            Anyway, this way.
-        b:
-          label: Slowly take the card
-          art: himbo
-          speaker: Himbo
-          reply: |
-            Yea, I don't trust the chips either
+            Man, my first day was so exciting, welcome to MWC. Welcome to the future!
             
-    -  text: |
-        _You follow him to the lift_
+            Follow me.
+        b:
+          label: Take it, calmly
+          art: himbo
+          speaker: Daniel
+          reply: |
+            Thats you, welcome to MWC. Welcome to the future!
+            
+            Follow me.
 
-    - art: lift_closed
+    - text: |
+        _[You follow Daniel to the lift, remembering him exuding the same kind of hopeful energy throughout your entire 15 round, 12 minute interview process.]_
+
+    - speaker: Daniel
+      text: |
+        We're floors 11 and up, used to have quants in the basement, closer to the cables, but apparently latency’s not really an issue with neo-markets.
+
+        You'll be on 17, office 178, desk B. look for Gerald, they've set him up doing intros. Don't take it personal, that's just how he is.
+
       choices:
         a:
           label: Call the lift
-          art: himbo
-          speaker: Himbo
+          speaker: Daniel
           reply: |
-            Whoa ok we got an ambitious one. Floor 11 please, boss.
+            Man, my first day was so exciting
         b:
           label: Do nothing
-          art: himbo
-          speaker: Himbo
+          speaker: Daniel
           reply: |
             _Presses lift button_
 
-            We're on floor 11 and up.
+            Yea we still have the old style
 
-    - speaker: Himbo
-      text: |
-        We used to have the quants in the basement, closer to the cables but
-        latency's not really an issue with neo-markets.
+    -  text: |
+        ...
 
-        You golf?
+    - text: |
+        Catch you on a drinkfood break maybe, have a good one.
 
-    - art: lift_opening
-      text: _ding_
+    - text: | 
+        _ding_ 
+    - text: |
+        _[The lift creaks into place and the doors open, 12 industrial revolutions down and we still haven't got the one that solves for general maintenance. You step in.]_
 
-    - art: himbo
-      speaker: Himbo
-      text: |
-        never mind - your desk's over there, by Harold.
+      choices:
+        a:
+          label: "[17]"
+          reply: |
+            _[Well remembered, you feel like you're being tested somehow, even now. Doors close and the lift starts to move...]_
+        b:
+          label: "[-1]"
+          reply: |
+            _[Oops, you catch yourself in time and press 17. The lift closes and carries you up...]_
+        c:
+          label: "[??]"
+          reply: |
+            _[No response. Thankfully. You hit 17 and the lift starts to move...]_
 
-        _points to the far corner_
-
-        Yea, the oldhead, don't mind him, he just been here a long time
-
-        maybe catch you on a drinkfood break some time
-
+  
   # Specified later. An empty sequence simply does not play, so this can sit
   # here unfinished without affecting anything.
-  tutorial: []
+  tutorial: 
+    - text: |
+        _[You stepo out at floor 17 and fail to orient yourself, only when you pass the lift for the 4th or 5th time do you spot the door to office 178.]_
+
+        _[You push open the door and see Gerald stood staring out the window, he's the only other person in there]_
+      choices:
+        a:
+          label: "Say 'hi'"
+          art: oldhead
+          speaker: Gerald
+          reply: |
+            ...
+        b:
+          label: "Look for desk B"
+          art: oldhead
+          speaker: Gerald
+          reply: |
+            ...
+   
+

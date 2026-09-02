@@ -5,7 +5,7 @@
 
 import './env.mjs'
 import { rm, readFile, writeFile } from 'node:fs/promises'
-import { loadCopy } from './copy.mjs'
+import { loadCopy, section, list } from './copy.mjs'
 
 const SCRATCH = new URL('./.selftest-state/', import.meta.url).pathname
 process.env.MW_STATE_DIR = SCRATCH
@@ -397,12 +397,21 @@ const ok = (name, cond, detail = '') => {
   ok('skip ends the scene and starts the game',
      !game.inSequence(skipper) && skipped.emissions.some((e) => /Round/.test(e.text || '')))
 
-  // an empty sequence must be harmless, since the tutorial is one
+  // A declared-but-unwritten scene must be harmless: that is the state every
+  // scene starts in. Injected rather than pointed at a real one, so this does
+  // not go stale the moment a writer fills that scene in - which is exactly
+  // what happened to the version of this test that named `tutorial`.
   const empty = game.newSession(93)
-  ok('an empty sequence simply does not play',
-     game.startSequence(empty, 'tutorial').length === 0 && !game.inSequence(empty))
+  section('sequences')._selftest_empty = []
+  ok('a declared but empty sequence simply does not play',
+     game.startSequence(empty, '_selftest_empty').length === 0 && !game.inSequence(empty))
   ok('and a sequence that does not exist is the same',
      game.startSequence(empty, 'nope_not_here').length === 0)
+  delete section('sequences')._selftest_empty
+
+  // every scene the opening names must actually exist
+  const missing = list('opening').filter((id) => !Array.isArray(section(`sequences.${id}`)))
+  ok('every scene in the opening list exists', missing.length === 0, missing.join(', '))
 }
 
 // --- beats -----------------------------------------------------------------

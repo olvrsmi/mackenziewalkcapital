@@ -97,7 +97,10 @@ function migrate (S) {
   // since been past the intro, so it is marked as seen rather than replayed at
   // someone who has been trading for a week.
   S.seq ??= null
-  S.seqSeen ??= S.rounds > 0 ? ['intro'] : []
+  // Every opening scene, not just the intro: a player who has been trading for
+  // a week should not suddenly be walked to their desk because a scene was
+  // added after they started.
+  S.seqSeen ??= S.rounds > 0 ? list('opening') : []
   S.vars ??= {}
   S.beatsSeen ??= []
   S.beat ??= null

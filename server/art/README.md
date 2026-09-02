@@ -41,3 +41,10 @@ portrait is never stretched to the width of the text beside it.
 Telegram scales media to the chat width, so anything much over 1280px wide is
 bytes for nothing. Keep stills under a megabyte or two; an mp4 wants to be
 short, silent and small — a few seconds and well under 10MB.
+
+## Checking
+
+`npm run copy-check` reads every scene and beat against this directory and
+reports both directions — a name with no file, and a file no scene asks for.
+Neither is an error: a scene is meant to be writable before it is drawn, and a
+picture may sit here waiting for a scene to want it.

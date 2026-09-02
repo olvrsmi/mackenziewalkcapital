@@ -486,14 +486,15 @@ export async function hydrate (S) {
 
 export async function boot (S) {
   await hydrate(S)
-  // A first sitting plays the intro instead of the welcome, and the game proper
-  // waits behind it. Everything after is what a returning player gets.
-  if (!(S.seqSeen || []).includes('intro') && section('sequences.intro')) {
-    const scene = startSequence(S, 'intro')
-    if (scene.length) {
-      S.expect = 'sequence'
-      return { emissions: scene }
-    }
+  // A first sitting plays the opening scenes instead of the welcome, and the
+  // game waits behind them. No chaining logic: when a scene ends, handle() boots
+  // again, and boot finds the next unseen one. So the order is a copy edit.
+  for (const id of list('opening')) {
+    if ((S.seqSeen || []).includes(id)) continue
+    const scene = startSequence(S, id)
+    if (!scene.length) { S.seqSeen = [...(S.seqSeen || []), id]; continue }
+    S.expect = 'sequence'
+    return { emissions: scene }
   }
 
   const rnd = mulberry(S.seed + S.rounds * 7919)
@@ -502,7 +503,7 @@ export async function boot (S) {
       // The intro is IN PLACE OF the welcome, not before it - so a player who
       // has been walked up to the desk is not then read the brochure. Skipping
       // the intro skips this too; `help` is where the rules live either way.
-      ...((S.seqSeen || []).includes('intro')
+      ...(list('opening').some((id) => (S.seqSeen || []).includes(id))
         ? []
         : [text(t('scenes.welcome', {
             worlds: S.allWorlds.length,
@@ -612,7 +613,10 @@ export async function handle (S, raw, emit = null) {
   // beat, which must never swallow one.
   if (inSequence(S)) {
     if (cmd === 'skip' || cmd === '/skip') {
+      // the whole opening, not just the scene in front of them - otherwise
+      // skipping is something you have to do once per scene
       endSequence(S)
+      S.seqSeen = [...new Set([...(S.seqSeen || []), ...list('opening')])]
       return out(...(await boot(S)).emissions)
     }
     const said = answerSequence(S, cmd)

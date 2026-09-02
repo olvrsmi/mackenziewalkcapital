@@ -114,6 +114,36 @@ const unused = allKeys().filter((k) =>
   !referenced.has(k) && !unusedSkip.some((p) => k.startsWith(p)) &&
   !seen.has(k))
 
+// --- art, both directions ---------------------------------------------------
+// The dry run only sees the art one playthrough happens to reach. This reads
+// every scene and beat in the file against what is actually in art/, so a name
+// with no file and a file no scene asks for are both visible.
+const { readdirSync, existsSync } = await import('node:fs')
+const { join, dirname } = await import('node:path')
+const { fileURLToPath } = await import('node:url')
+const ART = join(dirname(fileURLToPath(import.meta.url)), 'art')
+
+const wanted = new Set()
+const collectArt = (node) => {
+  if (!node || typeof node !== 'object') return
+  if (typeof node.art === 'string') wanted.add(node.art)
+  for (const v of Object.values(node)) {
+    if (Array.isArray(v)) v.forEach(collectArt)
+    else if (v && typeof v === 'object') collectArt(v)
+  }
+}
+collectArt(_lookup('sequences'))
+collectArt(_lookup('beats'))
+
+const onDisk = existsSync(ART)
+  ? new Set(readdirSync(ART)
+      .filter((f) => /\.(png|jpe?g|webp|gif|mp4)$/i.test(f))
+      .map((f) => f.replace(/\.[^.]+$/, '')))
+  : new Set()
+
+const artMissing = [...wanted].filter((n) => !onDisk.has(n)).sort()
+const artUnused = [...onDisk].filter((n) => !wanted.has(n)).sort()
+
 // --- report ---------------------------------------------------------------
 console.log(`\n  ${COPY_PATH}`)
 console.log(`  ${allKeys().length} entries · ${referenced.size} referenced in code · ` +
@@ -124,6 +154,16 @@ if (unused.length) {
   for (const k of unused) console.log(`    ${k}`)
   console.log()
 }
+
+// Both of these are notes, not problems: a scene is meant to be writable before
+// it is drawn, and a picture is allowed to sit in art/ waiting for a scene.
+if (artMissing.length) {
+  console.log(`  art a scene asks for with no file yet: ${artMissing.join(', ')}`)
+}
+if (artUnused.length) {
+  console.log(`  art in art/ that no scene asks for: ${artUnused.join(', ')}`)
+}
+if (artMissing.length || artUnused.length) console.log()
 
 if (!problems.length) {
   console.log('  no problems found.\n')
