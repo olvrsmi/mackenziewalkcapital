@@ -27,6 +27,7 @@ set -euo pipefail
 
 ROOT_DIR=/opt/mackenziewalk
 APP="$ROOT_DIR/app"
+REPO=${MW_REPO:-https://github.com/olvrsmi/mackenziewalkcapital.git}
 HOST=""; REF=""; DEPS=1; DRY=0; ENGINE=1
 IDENTITY=${MW_SSH_KEY:-}
 VENDOR_SRC=${MW_VENDOR_SRC:-}
@@ -118,6 +119,13 @@ fi
 say "Updating $HOST"
 "${SSH[@]}" "$HOST" "set -e
   cd $APP
+    # Pin the remote every time. A clone made when the repository was private,
+    # or against a url carrying a credential since rotated, otherwise keeps
+    # trying to authenticate for a repository that needs none - and says so as
+    # 'could not read Username', which names neither cause.
+    git remote set-url origin '$REPO'
+    # fail rather than block on a prompt there is no terminal to answer
+    export GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=/bin/true
   git fetch --quiet --tags origin
   git reset --quiet --hard '$REF' 2>/dev/null || git reset --quiet --hard 'origin/$REF'
   git log --oneline -1" | sed 's/^/    /'

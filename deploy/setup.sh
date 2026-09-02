@@ -78,6 +78,8 @@ say "Code"
 # the process cannot rewrite the code it is running. Data lives outside the
 # working tree entirely, which also keeps `git reset --hard` from ever being
 # near a saved game.
+# No terminal to answer a credential prompt, so make git say that plainly
+export GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=/bin/true
 if [ -d "$APP/.git" ]; then
   git -C "$APP" remote set-url origin "$REPO"
   git -C "$APP" fetch --quiet origin "$BRANCH"
