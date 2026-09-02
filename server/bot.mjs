@@ -228,34 +228,56 @@ function enqueue (chatId, job) {
   return next
 }
 
+/**
+ * The unprompted half of the game: whatever this session needs, when it needs
+ * it, with nobody having asked.
+ *
+ * One timer per chat covers both clocks. A wake closes any day that has ended,
+ * releases any readout that has come due, sends whatever that produced, and
+ * arms the next wake - so a day ends on time even for a player who has not
+ * opened the chat in three days, and a position still reports on its own.
+ */
 function fireFor (chatId) {
-  return (sched) => enqueue(chatId, async () => {
+  return () => enqueue(chatId, async () => {
     const S = await store.load(chatId)
     if (!S) return
-    if (sched.kind === 'step') {
-      const t0 = process.hrtime.bigint()
-      await game.hydrate(S)        // a resumed run ends by offering worlds
+    const t0 = process.hrtime.bigint()
+    const emissions = []
+
+    // days first: the bell closes a position, so a run stepped before its day
+    // was closed would settle into a day that had already ended
+    const caught = game.catchUpDays(S)
+    emissions.push(...caught.emissions)
+
+    let done = false
+    if (S.expect === 'running' && S.run) {
+      await game.hydrate(S)          // a resumed run ends by offering worlds
       const r = game.step(S)
-      logEvent('step', { chat: chatId, done: r.done,
-                        emissions: r.emissions.length,
-                        ms: Math.round(Number(process.hrtime.bigint() - t0) / 1e6) })
-      let fatal = false
+      emissions.push(...r.emissions)
+      done = r.done
+    }
+
+    logEvent('wake', { chat: chatId, days: caught.closed, done,
+                       emissions: emissions.length,
+                       ms: Math.round(Number(process.hrtime.bigint() - t0) / 1e6) })
+
+    let fatal = false
+    if (emissions.length) {
       try {
-        await deliver(chatId, r.emissions, S)
+        await deliver(chatId, emissions, S)
       } catch (e) {
-        // The state has already advanced, so the readout is lost either way.
-        // Keep the run alive unless the chat itself is gone.
+        // The state has already advanced, so the post is lost either way. Keep
+        // the session alive unless the chat itself is gone.
         fatal = [400, 403, 404].includes(e?.error_code)
-        console.error(`  ${chatId}: readout ${r.emissions.length ? '' : ''}` +
-                      `delivery failed${fatal ? ' permanently' : ''}: ` +
+        console.error(`  ${chatId}: wake delivery failed${fatal ? ' permanently' : ''}: ` +
                       `${e?.description || e?.message}`)
       }
-      await store.save(chatId, S)
-      if (fatal) {
-        console.error(`  ${chatId}: abandoning the run — the chat is unreachable`)
-      } else if (!r.done) {
-        store.schedule(chatId, r.schedule, fireFor(chatId))
-      }
+    }
+    await store.save(chatId, S)
+    if (fatal) {
+      console.error(`  ${chatId}: no longer waking this session — the chat is unreachable`)
+    } else {
+      store.schedule(chatId, { kind: 'wake', ms: game.nextWake(S) }, fireFor(chatId))
     }
   })
 }
@@ -288,8 +310,9 @@ async function handleToken (chatId, text) {
       await bot.api.sendChatAction(chatId, 'upload_photo').catch(() => {})
     })
     await deliver(chatId, r.emissions, S)
-    store.schedule(chatId, r.schedule, fireFor(chatId))
-    store.ensureTimer(chatId, S, fireFor(chatId))
+    // one wake covers both clocks, so a turn re-derives when the next thing is
+    // due rather than arming a readout and hoping the day is covered too
+    store.schedule(chatId, { kind: 'wake', ms: game.nextWake(S) }, fireFor(chatId))
     logEvent('turn', { chat: chatId, cmd: text.slice(0, 24),
                       expect: S.expect, day: S.dayIndex, round: S.rounds,
                       emissions: r.emissions.length,

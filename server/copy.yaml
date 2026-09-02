@@ -129,6 +129,20 @@ scenes:
     **The week closes.** Seven days came to {total}.
     {#if paid}A personal bonus of {bonus} has been paid. Your pot stands at {pot}. It cannot be invested.{:else}No bonus this week.{/if}
 
+  # {total} {attempt} {again} {coherence} — the probation week ended in profit
+  probation_passed: |
+    **Seven days. {total}.**
+
+    You are off probation. The desk is yours.
+
+  # {total} {attempt} {again} {budget} {coherence}
+  probation_failed: |
+    **Seven days. {total}.**
+
+    Not a profitable week, so not yet a desk. You start again on {budget}{#if again} — attempt {attempt}{/if}.
+
+    Your qubit is where you left it, at {coherence}. That much is yours.
+
   # {exit} {remaining} {reachable}
   exit_past_bell: |
     **{exit} falls after the bell.**

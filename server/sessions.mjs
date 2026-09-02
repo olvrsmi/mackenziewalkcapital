@@ -86,6 +86,12 @@ function migrate (S) {
     }
   }
 
+  // A desk that existed before probation did has already proved itself.
+  if (S.probation === undefined) {
+    S.probation = false
+    S.attempts = 1
+  }
+
   if (!S.run) return
   if (S.run.exitAt === undefined) {
     S.run.exitAt = Math.max(S.run.investAt + 1, (S.world?.readouts ?? 8) - 1)
@@ -166,25 +172,34 @@ export function schedule (chatId, sched, fire) {
   }, sched.ms))
 }
 
-/** A run or a wait should always have a timer behind it; re-arm if it does not. */
+/**
+ * Every session should have a wake behind it, not only the ones mid-run.
+ *
+ * A day has to close on the clock whether or not the player is watching, so the
+ * timer is no longer "the next readout" but "whenever this session next needs
+ * anything" - the sooner of its day boundary and its next post. Whatever fires
+ * works out what is due and arms the next one.
+ */
 export function ensureTimer (chatId, S, fire) {
   if (timers.has(chatId)) return
-  if (S.expect === 'running' && S.run) {
-    schedule(chatId, { kind: 'step', ms: game.STEP_MS }, fire)
-  }
+  schedule(chatId, { kind: 'wake', ms: game.nextWake(S) }, fire)
 }
 
-/** On boot, pick up every session that was mid-run when the process stopped. */
+/**
+ * On boot, arm every saved session.
+ *
+ * It used to be only the ones mid-run, because a timer only ever meant "the next
+ * readout". Now a session with no position still has a day ending, so a restart
+ * that skipped it would leave that day open until the player happened to speak.
+ */
 export async function resumeAll (fireFor) {
   const ids = await allChatIds()
   let resumed = 0
   for (const chatId of ids) {
     const S = await load(chatId)
     if (!S) continue
-    if (S.expect === 'running') {
-      ensureTimer(chatId, S, fireFor(chatId))
-      resumed += 1
-    }
+    ensureTimer(chatId, S, fireFor(chatId))
+    resumed += 1
   }
   return { sessions: ids.length, resumed }
 }

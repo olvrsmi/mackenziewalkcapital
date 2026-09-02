@@ -66,9 +66,12 @@ const ok = (name, cond, detail = '') => {
 // source is a proxy, but it is the call site that actually broke.
 {
   const src = await readFile(new URL('./bot.mjs', import.meta.url), 'utf8')
-  const step = src.slice(src.indexOf("sched.kind === 'step'"))
-  ok('the timer path hydrates before stepping',
-     /hydrate\(S\)/.test(step.slice(0, step.indexOf('game.step(S)'))))
+  const wake = src.slice(src.indexOf('function fireFor'))
+  ok('the wake hydrates before stepping',
+     /hydrate\(S\)/.test(wake.slice(0, wake.indexOf('game.step(S)'))))
+  // and closes days before it steps, or a run settles into a day that has ended
+  ok('the wake closes days before it steps a run',
+     wake.indexOf('catchUpDays') < wake.indexOf('game.step(S)'))
 }
 
 // --- the budget arithmetic ---------------------------------------------------
@@ -263,6 +266,61 @@ const ok = (name, cond, detail = '') => {
      Math.abs(cheap - game.priceReturn(0.5, -0.5)) < 1e-12)
   ok('holding through a recovery profits', game.priceReturn(1, -1) > 0)
   ok('holding through a decline loses', game.priceReturn(-1, 1) < 0)
+}
+
+// --- probation -------------------------------------------------------------
+{
+  const week = (pls, S = game.newSession(1)) => {
+    S.history = []
+    let last
+    for (const pl of pls) { S.balance = S.budget + pl; S.investedToday = 1; last = game.closeDay(S) }
+    return { S, last }
+  }
+
+  const won = week([200, -50, 120, -30, 90, 40, 10])
+  ok('a profitable week passes probation',
+     won.last.verdict === 'passed' && won.S.probation === false, won.last.verdict)
+  ok('probation pays no bonus - the week is the reward',
+     won.last.bonusPaid === 0, String(won.last.bonusPaid))
+  ok('and the week after does pay one',
+     week([200, -50, 120, -30, 90, 40, 10], won.S).last.bonusPaid > 0)
+
+  const lost = week([-200, -50, 120, -30, -90, 40, 10])
+  ok('a losing week fails it', lost.last.verdict === 'failed', lost.last.verdict)
+  ok('a retry winds the desk back',
+     lost.S.budget === game.START_BUDGET && lost.S.week.length === 0 && lost.S.attempts === 2,
+     `budget ${lost.S.budget} week ${lost.S.week.length} attempt ${lost.S.attempts}`)
+  ok('but the player keeps their own qubit',
+     lost.S.coherence > 0 && lost.S.probation === true)
+
+  // exactly zero is not a profit
+  ok('breaking even over the week does not pass',
+     week([0, 0, 0, 0, 0, 0, 0]).last.verdict === 'failed')
+}
+
+// --- the clock keeps running -------------------------------------------------
+{
+  const S = game.newSession(9)
+  S.dayStartedMs = Date.now() - realMs(GAME_DAY_SECONDS * 3.5)
+  const before = S.dayIndex
+  const caught = game.catchUpDays(S)
+  ok('an absence closes every day that passed, not just one',
+     caught.closed === 3 && S.dayIndex - before === 3, `closed ${caught.closed}`)
+  ok('and each of them counts as idle',
+     S.budget < game.START_BUDGET, `budget ${S.budget}`)
+  ok('the clock is left where the last boundary fell, not at now',
+     !game.dayIsOver(S) && game.dayRemaining(S) < GAME_DAY_SECONDS)
+
+  // a session left for a game month must not return a hundred messages
+  const stale = game.newSession(10)
+  stale.dayStartedMs = Date.now() - realMs(GAME_DAY_SECONDS * 40)
+  const far = game.catchUpDays(stale)
+  ok('a very long absence is capped rather than replayed',
+     far.closed <= 7 && !game.dayIsOver(stale), `closed ${far.closed}`)
+
+  // every session needs a wake, not only the ones mid-run
+  ok('a session with no position still has a next wake',
+     game.nextWake(game.newSession(11)) > 0)
 }
 
 // --- the bell ----------------------------------------------------------------

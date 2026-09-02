@@ -46,6 +46,9 @@ export const BUDGET_DOWN = 0.95        // after a loss, or a day spent idle
 // fraction of that day's budget.
 export const QUOTA = Number(process.env.MW_QUOTA || 0.10)
 export const WEEK_DAYS = 7
+// A new desk is on probation until it has posted a profitable week. Failing
+// means starting the week again, not leaving.
+export const PROBATION = process.env.MW_PROBATION !== '0'
 export const WEEK_BONUS = Number(process.env.MW_WEEK_BONUS || 100)
 export const UPGRADE_COST = Number(process.env.MW_UPGRADE_COST || 10)
 
@@ -151,6 +154,9 @@ export function newSession (seed = Date.now()) {
     dayStartedMs: Date.now(),
     investedToday: 0,
     week: [],                 // the last seven days' results
+    // a new desk has a week to prove itself before it is a desk
+    probation: PROBATION,
+    attempts: 1,
     bonus: 0,                 // personal, cannot be staked
     history: [START_BUDGET],
     rounds: 0,
@@ -234,9 +240,13 @@ export function closeDay (S) {
   S.week.push(pl)
   let bonusPaid = 0
   let weekTotal = null
+  let passed = null
   if (S.week.length >= WEEK_DAYS) {
     weekTotal = S.week.reduce((a, b) => a + b, 0)
-    if (weekTotal > 0) { S.bonus += WEEK_BONUS; bonusPaid = WEEK_BONUS }
+    passed = weekTotal > 0
+    // On probation the week is the test and the bonus is not yet on offer;
+    // afterwards it is an ordinary week and pays as one.
+    if (passed && !S.probation) { S.bonus += WEEK_BONUS; bonusPaid = WEEK_BONUS }
     S.week = []
   }
 
@@ -248,8 +258,25 @@ export function closeDay (S) {
   S.investedToday = 0
   S.history.push(S.balance)
 
-  return { pl, traded, good, wasBudget, next, bonusPaid, weekTotal,
-           day: S.dayIndex }
+  // The verdict, if a week just ended on probation. A failure winds the desk
+  // back to where it started - everything except the player's own qubit, which
+  // is theirs rather than the firm's and carries whatever it has left.
+  let verdict = null
+  if (S.probation && weekTotal !== null) {
+    verdict = passed ? 'passed' : 'failed'
+    if (passed) {
+      S.probation = false
+    } else {
+      S.attempts = (S.attempts || 1) + 1
+      S.budget = START_BUDGET
+      S.balance = START_BUDGET
+      S.week = []
+      S.history = []
+    }
+  }
+
+  return { pl, traded, good, wasBudget, next, bonusPaid, weekTotal, verdict,
+           attempt: S.attempts || 1, day: S.dayIndex }
 }
 
 function tickLines (elapsed) {
@@ -548,7 +575,10 @@ export async function handle (S, raw, emit = null) {
   const elapsed = tick(S)
   const pre = tickLines(elapsed).map(text)
   // nothing is open here, so the books can be closed straight away
-  if (S.expect !== 'running' && dayIsOver(S)) pre.push(...endOfDay(S))
+  // Every day that has ended, not just the most recent - a player returning
+  // after an absence closes the whole gap. The wake timer normally gets there
+  // first; this covers a bot that was down while the clock ran.
+  if (S.expect !== 'running') pre.push(...catchUpDays(S).emissions)
   let preSent = false
   const out = (...e) => ({ emissions: [...(preSent ? [] : pre), ...e.flat()] })
   const cmd = String(raw || '').trim().toLowerCase()
@@ -918,6 +948,44 @@ function settle (S, { closeRound = true } = {}) {
 }
 
 /** Close the books, pay any weekly bonus, and hand out tomorrow's budget. */
+/**
+ * Close every day that has elapsed, not just the one.
+ *
+ * A day used to close only when the player said something, so three days away
+ * cost one day's ladder rather than three - time only passed while you watched.
+ * Now the clock is the clock: an absence is three idle days and compounds like
+ * three idle days. The cap is a guard against a session that has sat untouched
+ * for a game month returning a hundred day-end messages at once; past it the
+ * clock is simply reset to now and the days are forfeit.
+ */
+export function catchUpDays (S, nowMs = Date.now(), cap = 7) {
+  const out = []
+  let closed = 0
+  while (dayIsOver(S, nowMs) && closed < cap) {
+    // closeDay stamps dayStartedMs to now, which would swallow the remainder of
+    // a long absence; wind it to the boundary that actually passed instead
+    const boundary = S.dayStartedMs + realMs(GAME_DAY_SECONDS)
+    out.push(...endOfDay(S))
+    S.dayStartedMs = boundary
+    closed += 1
+  }
+  if (dayIsOver(S, nowMs)) S.dayStartedMs = nowMs   // too far behind to replay
+  return { emissions: out, closed }
+}
+
+/**
+ * When this session next needs attention, in real milliseconds - whichever of
+ * its clocks comes first. One timer per chat, so it has to be the soonest of
+ * them, and whatever fires re-derives the next.
+ */
+export function nextWake (S, nowMs = Date.now()) {
+  const due = [realMs(dayRemaining(S, nowMs))]
+  if (S.expect === 'running' && S.run) due.push(msUntilNextPost(nowMs))
+  // never busier than once a second, and never further off than an hour, so a
+  // clock change or a long sleep cannot strand a session
+  return Math.max(1000, Math.min(3600000, ...due))
+}
+
 export function endOfDay (S) {
   const r = closeDay(S)
   const out = [text(t('scenes.day_end', {
@@ -930,12 +998,18 @@ export function endOfDay (S) {
     floor: money(BUDGET_FLOOR),
   }))]
   if (r.weekTotal !== null) {
-    out.push(text(t('scenes.week_end', {
+    // On probation the week is a verdict, not an accounting - a different
+    // message entirely, because "no bonus this week" is not what has happened.
+    out.push(text(t(r.verdict ? `scenes.probation_${r.verdict}` : 'scenes.week_end', {
       total: `${r.weekTotal >= 0 ? '+' : ''}${money(r.weekTotal)}`,
       total_raw: r.weekTotal,
       paid: r.bonusPaid > 0,
       bonus: money(r.bonusPaid),
       pot: money(S.bonus),
+      attempt: r.attempt,
+      again: r.attempt > 1,
+      budget: money(START_BUDGET),
+      coherence: S.coherence.toFixed(3),
     })))
   }
   return out
