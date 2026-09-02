@@ -146,6 +146,17 @@ if [ -f "$ENV_FILE" ]; then
     *) bad ".env is $perms - should be 640 on the box, 600 on a laptop" ;;
   esac
   # presence only - the value is never printed or logged
+  # The mode was 640 while the group was root, so checking the mode alone said
+  # nothing: the service could not read its own configuration and died at import.
+  # Ask the user that actually runs it.
+  if id "$USER_NAME" >/dev/null 2>&1 && command -v runuser >/dev/null && [ "$(id -u)" -eq 0 ]; then
+    if runuser -u "$USER_NAME" -- test -r "$ENV_FILE" 2>/dev/null; then
+      ok "$USER_NAME can read .env"
+    else
+      bad "$USER_NAME cannot read .env - the service will die at startup.
+        chown root:$USER_NAME $ENV_FILE && chmod 640 $ENV_FILE"
+    fi
+  fi
   if grep -qE '^TELEGRAM_BOT_TOKEN=.+' "$ENV_FILE"; then ok "a deployed token is set"
   else bad "TELEGRAM_BOT_TOKEN is empty in $ENV_FILE"; fi
   if grep -qE '^TELEGRAM_BOT_TOKEN_LOCAL=.+' "$ENV_FILE"; then
@@ -184,8 +195,14 @@ if command -v systemctl >/dev/null; then
      systemctl cat mackenziewalk.service >/dev/null 2>&1; then
     ok "mackenziewalk.service installed"
     state=$(systemctl is-active mackenziewalk 2>/dev/null || true)
-    [ "$state" = "active" ] && ok "service is running" \
-      || skipf "service is $state (start it once the checks pass)"
+    # `inactive` before a first start is fine; `failed` is the game being down,
+    # and reporting that as a skip is how a crash loop passes a health check.
+    case "$state" in
+      active)   ok "service is running" ;;
+      failed)   bad "service has FAILED - the game is down.
+        journalctl -u mackenziewalk -n 40 --no-pager" ;;
+      *)        skipf "service is $state (start it once the checks pass)" ;;
+    esac
     systemctl is-enabled mackenziewalk-backup.timer >/dev/null 2>&1 \
       && ok "daily backup timer enabled" || bad "backup timer is not enabled"
   else

@@ -156,7 +156,11 @@ if [ "$DEPS" -eq 1 ]; then
     model/.venv/bin/pip install -q -e $ROOT_DIR/vendor/QDrive
     model/.venv/bin/python3 -m compileall -q model >/dev/null 2>&1 || true
     cd server && npm ci --omit=dev --silent
-    chown -R root:root $APP" || die "dependency install failed"
+    chown -R root:root $APP
+    # that just took the group off .env, which is the only way the service can
+    # read it - put it back, or the bot dies at import with EACCES
+    chown root:mw $APP/server/.env 2>/dev/null || true
+    chmod 640 $APP/server/.env 2>/dev/null || true" || die "dependency install failed"
   note "ok"
 fi
 
@@ -176,7 +180,8 @@ note "$n worlds playable"
 
 say "Restarting"
 # One poller per token: stop before start, never overlap.
-"${SSH[@]}" "$HOST" "systemctl restart mackenziewalk && sleep 6 && systemctl is-active mackenziewalk" \
+"${SSH[@]}" "$HOST" "systemctl reset-failed mackenziewalk 2>/dev/null || true
+  systemctl restart mackenziewalk && sleep 6 && systemctl is-active mackenziewalk" \
   >/dev/null || die "the service did not come up. ssh $HOST journalctl -u mackenziewalk -n 40"
 
 say "Status"

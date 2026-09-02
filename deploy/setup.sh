@@ -139,11 +139,16 @@ MW_STEPS=10
 # While the prototype is private. Forward a message to @userinfobot for an id.
 MW_ALLOW=
 ENVEOF
-  # readable by the service, writable by nobody but root
-  chown "root:$USER_NAME" "$ENV_FILE"
-  chmod 640 "$ENV_FILE"
   note "wrote $ENV_FILE - fill in the token"
 fi
+
+# Outside the branch above, because it has to hold for an .env that already
+# existed too. `chown -R root:root` on the clone resets the group, and the
+# service then cannot read its own configuration - which fails at import, before
+# anything gets as far as saying why. root owns it so the game cannot rewrite its
+# own token; the group membership is what lets it read at all.
+chown "root:$USER_NAME" "$ENV_FILE"
+chmod 640 "$ENV_FILE"
 
 say "Dependencies"
 [ -d "$APP/model/.venv" ] || python3 -m venv "$APP/model/.venv"
