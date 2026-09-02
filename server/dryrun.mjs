@@ -14,7 +14,7 @@ import './env.mjs'
 import { loadCopy, holding } from './copy.mjs'
 loadCopy({ quiet: true })
 import * as game from './game.mjs'
-import { renderEmission, RENDERABLE } from './render.mjs'
+import { renderEmission, RENDERABLE, artPath } from './render.mjs'
 import { timeInfo, describeReal } from './time.mjs'
 
 const pngDir = process.argv.includes('--png')
@@ -22,7 +22,8 @@ const pngDir = process.argv.includes('--png')
 if (pngDir) mkdirSync(pngDir, { recursive: true })
 
 let shot = 0
-const sent = { text: 0, photo: 0, captions: 0, unknown: 0, bytes: 0 }
+const sent = { text: 0, photo: 0, captions: 0, unknown: 0, art: 0,
+               artMissing: new Set(), bytes: 0 }
 
 // the same mapping bot.mjs uses, kept in step by importing nothing from it:
 // buttons are just the tokens a player could type
@@ -52,6 +53,16 @@ function show (emissions, S) {
       // message is not previewing the thing the player actually gets
       for (const l of lines.slice(1)) {
         if (l.trim()) console.log(`           ${l.slice(0, 88)}`)
+      }
+    } else if (e.kind === 'art') {
+      const file = artPath(e.art)
+      sent.art++
+      if (!file) sent.artMissing.add(e.art)
+      console.log(`  [art   ] ${e.art}${file ? '' : '  (no file yet)'}`)
+      if (e.caption) {
+        for (const l of e.caption.replace(/\*\*/g, '').split('\n')) {
+          if (l.trim()) console.log(`           ${l.slice(0, 88)}`)
+        }
       }
     } else if (RENDERABLE.has(e.kind)) {
       const png = renderEmission(e)
@@ -89,6 +100,10 @@ console.log(`  a spent qubit recharges over ${describeReal(1 / game.BASE_REGEN)}
 const S = game.newSession(7)
 show((await game.boot(S)).emissions, S)
 
+// The intro has the floor at boot, so walk through it rather than have the
+// first token bounced off a scene. Playing it rather than skipping it is the
+// point: this is the only harness that shows what the opening looks like.
+await say(S, 'a')
 await say(S, '1')
 await say(S, 'o')
 await say(S, 'i')
@@ -107,8 +122,11 @@ while (!step.done && guard++ < 40) {
   show(step.emissions, S)
 }
 
-console.log(`\n  sent ${sent.text} text and ${sent.photo} photos (${sent.captions} carrying a reading) ` +
+console.log(`\n  sent ${sent.text} text, ${sent.photo} photos and ${sent.art} art (${sent.captions} carrying a reading) ` +
             `(${(sent.bytes / 1024 | 0)}KB total)`)
 console.log(`  balance ${Math.round(S.balance)}G · coherence ${S.coherence.toFixed(3)} ` +
             `· expect '${S.expect}'`)
+if (sent.artMissing.size) {
+  console.log(`  art not drawn yet: ${[...sent.artMissing].sort().join(', ')}`)
+}
 if (pngDir) console.log(`  images written to ${pngDir}`)

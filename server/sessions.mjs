@@ -93,6 +93,12 @@ function migrate (S) {
   }
   // A save from before beats existed has seen none of them - but it is also
   // past probation, so none are due either.
+  // A save from before scenes existed has played none - but it has also long
+  // since been past the intro, so it is marked as seen rather than replayed at
+  // someone who has been trading for a week.
+  S.seq ??= null
+  S.seqSeen ??= S.rounds > 0 ? ['intro'] : []
+  S.vars ??= {}
   S.beatsSeen ??= []
   S.beat ??= null
   S.unlocked ??= []

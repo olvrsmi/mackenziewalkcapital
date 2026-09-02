@@ -185,6 +185,8 @@ prompts:
     `b` / `s` — buy or sell regeneration · `l` — leave the marketplace
     When asked for a number, just type it.
   say_something: Say something, or type **help**.
+  # shown when a player types something a running scene has no answer for
+  scene_waiting: _Someone is still talking. Answer them, or **skip**._
   nothing_to_decide: Nothing to decide just now.
 
 buttons:
@@ -409,3 +411,74 @@ beats:
     - _Someone has left a coffee on 4B. It is not yours and it is not warm._
     - _The oldhead is at his own desk today, and stays there._
     - _A cleaner works around you without asking you to move._
+
+# ---------------------------------------------------------------------------
+# Sequences — scripted scenes, played a node at a time.
+#
+# Everything up to the next thing the scene wants from the player is sent in one
+# burst, a beat apart. See BEATS.md for the whole schema; in short, a node may
+# carry `art`, `speaker`, `text`, `choices` (keyed a, b, c... — any number), and
+# `ask` (capture what they type next into a named variable).
+#
+# Choices colour the moment and rejoin: each one's `reply` plays, then the
+# sequence carries on from the next node. There is no branching to track.
+#
+# `art` names a file in server/art/. A name with no file is skipped silently, so
+# a scene can be written before it is drawn.
+# ---------------------------------------------------------------------------
+sequences:
+  intro:
+    - art: tower
+
+    - art: himbo
+      speaker: Himbo
+      text: |
+        There you are, you made it past security. I should tell them to sharpen
+        up haha
+
+        _Hands over lanyard_
+
+        Thats you, although if they're not checking down there then you can just
+        use it to... Anyway this way.
+
+    - art: lift_closed
+      choices:
+        a:
+          label: Call the lift
+          art: himbo
+          speaker: Himbo
+          reply: |
+            Whoa ok we got an ambitious one. Floor 11 please, boss.
+        b:
+          label: Do nothing
+          art: himbo
+          speaker: Himbo
+          reply: |
+            _Presses lift button_
+
+            We're on floor 11 and up.
+
+    - speaker: Himbo
+      text: |
+        We used to have the quants in the basement, closer to the cables but
+        latency's not really an issue with neo-markets.
+
+        You golf?
+
+    - art: lift_opening
+      text: _ding_
+
+    - art: himbo
+      speaker: Himbo
+      text: |
+        never mind - your desk's over there, by Harold.
+
+        _points to the far corner_
+
+        Yea, the oldhead, don't mind him, he just been here a long time
+
+        maybe catch you on a drinkfood break some time
+
+  # Specified later. An empty sequence simply does not play, so this can sit
+  # here unfinished without affecting anything.
+  tutorial: []

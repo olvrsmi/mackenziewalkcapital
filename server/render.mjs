@@ -14,6 +14,7 @@
 // (U+27E8/27E9) or box-drawing glyphs, and renders them as tofu.
 
 import { createCanvas, GlobalFonts } from '@napi-rs/canvas'
+import { existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -22,7 +23,9 @@ import { t, holding } from './copy.mjs'
 // Vendored rather than left to the host: a box with no Roboto would silently
 // fall back to whatever it does have, and the chart would be a different chart
 // there than the one that was designed here. Both are SIL Open Font License.
-const FONTS = join(dirname(fileURLToPath(import.meta.url)), 'fonts')
+const HERE = dirname(fileURLToPath(import.meta.url))
+const FONTS = join(HERE, 'fonts')
+const ART = join(HERE, 'art')
 for (const file of ['RobotoCondensed[wght].ttf', 'RobotoMono[wght].ttf']) {
   try {
     GlobalFonts.registerFromPath(join(FONTS, file))
@@ -293,6 +296,22 @@ function spread (items, gap, min, max) {
  * list, so an emission kind nobody draws is loud instead of lost.
  */
 export const RENDERABLE = new Set(['traces'])
+
+/**
+ * The file behind an `art:` name, or null if there is none.
+ *
+ * A missing picture is not an error: a scene has to be writable before it is
+ * drawn, so a name with no file plays as text alone. The dry run reports what it
+ * could not find, so it does not go missing quietly either.
+ */
+export function artPath (name) {
+  if (!name || !/^[\w-]+$/.test(name)) return null
+  for (const ext of ['png', 'jpg', 'jpeg', 'webp']) {
+    const file = join(ART, `${name}.${ext}`)
+    if (existsSync(file)) return file
+  }
+  return null
+}
 
 export function renderEmission (e) {
   switch (e.kind) {

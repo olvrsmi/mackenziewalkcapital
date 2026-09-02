@@ -1,4 +1,4 @@
-# Writing beats
+# Writing beats and scenes
 
 Beats live in `server/copy.yaml`, under `beats:`. Nothing else needs touching to
 add one, and the file hot-reloads — a running bot picks up an edit without a
@@ -97,3 +97,91 @@ npm run copy-check      # every key a writer typed, validated both ways
 npm test                # the beat mechanics
 npm run dryrun          # play a round and watch the day-one beat arrive
 ```
+
+---
+
+# Scenes
+
+A **sequence** is a scripted scene: a list of nodes played in order, stopping
+wherever it wants something from the player. Everything up to that stop is sent
+in one burst, a beat apart, with a typing indicator — so it reads as someone
+talking rather than as four messages at once. `MW_PACE_MS` sets the gap.
+
+They live under `sequences:` in `copy.yaml`. `intro` plays at a first `/start`,
+in place of `scenes.welcome`. `tutorial` is there and empty; an empty sequence
+simply does not play, so it can sit unfinished.
+
+## A node
+
+```yaml
+sequences:
+  intro:
+    - art: tower                      # picture alone
+
+    - art: himbo                      # picture and a line, as one message
+      speaker: Himbo
+      text: |
+        There you are, you made it past security.
+
+    - art: lift_closed                # stops here and waits
+      choices:
+        a:
+          label: Call the lift
+          art: himbo
+          speaker: Himbo
+          reply: |
+            Whoa ok we got an ambitious one.
+        b:
+          label: Do nothing
+          speaker: Himbo
+          reply: |
+            _Presses lift button_
+
+    - speaker: Himbo                  # both branches arrive here
+      text: |
+        You golf?
+```
+
+| field | |
+|---|---|
+| `art` | a name in `server/art/`. Missing files are skipped, so write before it is drawn |
+| `speaker` | who is talking; rendered bold above the line |
+| `text` | what they say |
+| `choices` | keyed `a`, `b`, `c`… — **any number**. Each has a `label` and a `reply` |
+| `ask` | capture what the player types next into a named variable |
+
+Choices **colour the moment and rejoin**: the reply plays, then the sequence
+carries on from the next node. There is no branching to track and no graph to
+hold in your head.
+
+## Asking the player something
+
+```yaml
+    - speaker: Himbo
+      text: What do we call you?
+      ask: name
+    - speaker: Himbo
+      text: |
+        Alright, {name}. This way.
+```
+
+Whatever they type is stored (trimmed, 60 characters) and readable as `{name}`
+in every later line of every scene, and in beats.
+
+## Effects
+
+The same two a beat may carry, on a choice or an `ask`: `coherence:` as a delta
+and `unlock:` as a marketplace id.
+
+## Placeholders
+
+`{budget}`, `{coherence}`, and anything an earlier `ask` captured.
+
+## What a scene interrupts
+
+Everything. A running scene has the floor: a command it does not recognise gets
+*"Someone is still talking"* rather than reaching the game, so a player cannot
+be halfway up the lift and holding a position. `skip` ends it — which also skips
+the welcome, since the scene is in place of it. `help` is where the rules live.
+
+This is the opposite of a beat, which must never swallow a command.

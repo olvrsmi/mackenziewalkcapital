@@ -20,7 +20,7 @@ import { Bot, InlineKeyboard, InputFile, GrammyError, HttpError } from 'grammy'
 import * as game from './game.mjs'
 import { t, loadCopy, watchCopy, copyInfo, holding, moment } from './copy.mjs'
 import * as store from './sessions.mjs'
-import { renderEmission, RENDERABLE } from './render.mjs'
+import { renderEmission, RENDERABLE, artPath } from './render.mjs'
 import { modelInfo } from './model.mjs'
 import { timeInfo, describeReal } from './time.mjs'
 import { logEvent, logFile } from './log.mjs'
@@ -38,6 +38,9 @@ if (!TOKEN) {
   console.error('  See .env.example.\n')
   process.exit(78)          // EX_CONFIG: systemd will not restart on this
 }
+
+// how long a scripted burst waits between messages
+const PACE_MS = Number(process.env.MW_PACE_MS || 1400)
 
 const ALLOW = (process.env.MW_ALLOW || '').split(',').map((s) => s.trim())
   .filter(Boolean)
@@ -74,6 +77,13 @@ function keyboardFor (S) {
   // A pending beat's choices come first and sit on their own row. They are
   // offered whatever the game state is, including mid-position, because a beat
   // does not interrupt a run and its choice can be answered whenever.
+  // A running scene owns the keyboard outright - nothing else is offered while
+  // the player is in it, and its choices are however many the writer wrote.
+  const scene = game.sequenceChoices(S)
+  if (scene.length) {
+    for (const c of scene) k.text(c.label, c.token).row()
+    return k
+  }
   const beat = game.beatChoices(S)
   if (beat.length) {
     for (const c of beat) k.text(c.label, c.token)
@@ -180,9 +190,31 @@ async function deliver (chatId, emissions, S, { keyboard = true } = {}) {
     // the player has only now used.
     const reply_markup = keyboard && last ? keyboardFor(S) : undefined
 
+    // A scripted burst arrives a beat apart with a typing indicator, so it
+    // reads as someone talking rather than as four messages at once.
+    if (e.pace && i > 0) {
+      await bot.api.sendChatAction(chatId, 'typing').catch(() => {})
+      await new Promise((r) => setTimeout(r, PACE_MS))
+    }
+
     if (e.kind === 'text') {
       await sendWithRetry(() => bot.api.sendMessage(chatId, toHtml(e.text),
         { parse_mode: 'HTML', reply_markup }), chatId)
+    } else if (e.kind === 'art') {
+      const file = artPath(e.art)
+      const cap = e.caption ? toHtml(e.caption) : undefined
+      if (!file) {
+        // not drawn yet: play the line without the picture rather than nothing
+        if (cap) {
+          await sendWithRetry(() => bot.api.sendMessage(chatId, cap,
+            { parse_mode: 'HTML', reply_markup }), chatId)
+        }
+        logEvent('art_missing', { chat: chatId, art: e.art })
+      } else {
+        await bot.api.sendChatAction(chatId, 'upload_photo').catch(() => {})
+        await sendWithRetry(() => bot.api.sendPhoto(chatId, new InputFile(file),
+          { reply_markup, ...(cap ? { caption: cap, parse_mode: 'HTML' } : {}) }), chatId)
+      }
     } else if (RENDERABLE.has(e.kind)) {
       await bot.api.sendChatAction(chatId, 'upload_photo').catch(() => {})
       const t0 = process.hrtime.bigint()

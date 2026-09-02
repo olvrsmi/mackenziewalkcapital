@@ -11,7 +11,7 @@
 import { callModel } from './model.mjs'
 import { gameSeconds, realMs, describeGame, describeReal, GAME_DAY_SECONDS }
   from './time.mjs'
-import { t, list, section, holding, moment } from './copy.mjs'
+import { t, list, section, render, holding, moment } from './copy.mjs'
 
 // How many times a world is stepped. A specification has no natural end - it
 // would keep being applied forever - so this is the whole answer to "how long
@@ -157,6 +157,9 @@ export function newSession (seed = Date.now()) {
     // a new desk has a week to prove itself before it is a desk
     probation: PROBATION,
     attempts: 1,
+    seq: null,               // a scene in progress
+    seqSeen: [],             // scenes played, so the intro plays once
+    vars: {},                // whatever a scene asked the player for
     beatsSeen: [],           // a setpiece fires once, ever
     beat: null,              // a choice waiting to be answered
     unlocked: [],            // marketplace items a beat has opened up
@@ -483,18 +486,33 @@ export async function hydrate (S) {
 
 export async function boot (S) {
   await hydrate(S)
+  // A first sitting plays the intro instead of the welcome, and the game proper
+  // waits behind it. Everything after is what a returning player gets.
+  if (!(S.seqSeen || []).includes('intro') && section('sequences.intro')) {
+    const scene = startSequence(S, 'intro')
+    if (scene.length) {
+      S.expect = 'sequence'
+      return { emissions: scene }
+    }
+  }
+
   const rnd = mulberry(S.seed + S.rounds * 7919)
   return {
     emissions: [
-      text(t('scenes.welcome', {
-        worlds: S.allWorlds.length,
-        skipped: S.skipped,
-        recharge: describeReal(1 / BASE_REGEN),
-      })),
+      // The intro is IN PLACE OF the welcome, not before it - so a player who
+      // has been walked up to the desk is not then read the brochure. Skipping
+      // the intro skips this too; `help` is where the rules live either way.
+      ...((S.seqSeen || []).includes('intro')
+        ? []
+        : [text(t('scenes.welcome', {
+            worlds: S.allWorlds.length,
+            skipped: S.skipped,
+            recharge: describeReal(1 / BASE_REGEN),
+          }))]),
       ...sceneMain(S),
       ...offerWorlds(S, rnd),
-        // day one has no day-close before it to ride on
-        ...fireBeat(S),
+      // day one has no day-close before it to ride on
+      ...fireBeat(S),
     ],
   }
 }
@@ -588,6 +606,22 @@ export async function handle (S, raw, emit = null) {
   let preSent = false
   const out = (...e) => ({ emissions: [...(preSent ? [] : pre), ...e.flat()] })
   const cmd = String(raw || '').trim().toLowerCase()
+
+  // A running scene has the floor. It answers first, and a command it does not
+  // recognise gets a nudge rather than falling through to the game - unlike a
+  // beat, which must never swallow one.
+  if (inSequence(S)) {
+    if (cmd === 'skip' || cmd === '/skip') {
+      endSequence(S)
+      return out(...(await boot(S)).emissions)
+    }
+    const said = answerSequence(S, cmd)
+    if (said) {
+      if (!inSequence(S)) return out(said, (await boot(S)).emissions)
+      return out(said)
+    }
+    return out(text(t('prompts.scene_waiting')))
+  }
 
   // A pending beat is answered before anything else looks at the command, and
   // does not touch `expect` - so it can be answered mid-position, and a command
@@ -962,6 +996,124 @@ function settle (S, { closeRound = true } = {}) {
 }
 
 /** Close the books, pay any weekly bonus, and hand out tomorrow's budget. */
+// ---------------------------------------------------------------------------
+// Sequences
+//
+// A scripted scene: a list of nodes played in order, stopping wherever it wants
+// something from the player. Everything up to that stop is sent in one burst,
+// paced a beat apart, so nobody taps a button that has no decision behind it.
+//
+// A node may carry any of:
+//
+//   art       a picture from server/art - missing files are skipped, so a
+//             writer can reference one before it is drawn
+//   speaker   who is talking
+//   text      what they say
+//   choices   keyed a, b, c... - any number of them. Each has a label, and a
+//             reply that plays before the sequence carries on: branches colour
+//             the moment and rejoin, so there is no graph to keep in your head
+//   ask       capture whatever the player types next into a named variable,
+//             readable afterwards as {that_name}
+//
+// Choices and asks may carry the same two effects a beat may: a coherence delta
+// and a marketplace unlock.
+// ---------------------------------------------------------------------------
+
+/** Begin a named sequence. Returns nothing if there is no such sequence. */
+export function startSequence (S, id) {
+  const nodes = section(`sequences.${id}`)
+  if (!Array.isArray(nodes) || !nodes.length) return []
+  S.seq = { id, at: 0, awaiting: null }
+  S.vars ??= {}
+  return runSequence(S)
+}
+
+export const inSequence = (S) => Boolean(S.seq)
+
+const seqNodes = (S) => section(`sequences.${S.seq.id}`) || []
+
+/** The context every line in a sequence can read. */
+const seqCtx = (S) => ({
+  ...S.vars,
+  budget: money(S.budget),
+  coherence: S.coherence.toFixed(3),
+})
+
+/** One node, as emissions. A picture and a line travel as one message. */
+function seqEmit (S, node, textKey) {
+  const body = textKey ? render(textKey, seqCtx(S)) : null
+  const speaker = node.speaker ? render(node.speaker, seqCtx(S)) : null
+  const caption = body === null ? null
+    : (speaker ? `**${speaker}**\n${body}` : body)
+  if (node.art) return [{ kind: 'art', art: node.art, caption, pace: true }]
+  return caption === null ? [] : [{ kind: 'text', text: caption, pace: true }]
+}
+
+/**
+ * Play forward until the sequence wants something, or ends.
+ *
+ * Everything between stops goes at once. `awaiting` is what the next message
+ * from the player will mean - a choice, or the answer to an ask.
+ */
+export function runSequence (S) {
+  const out = []
+  const nodes = seqNodes(S)
+  while (S.seq && S.seq.at < nodes.length) {
+    const node = nodes[S.seq.at]
+    out.push(...seqEmit(S, node, node.text))
+    if (node.choices) { S.seq.awaiting = 'choice'; return out }
+    if (node.ask) { S.seq.awaiting = 'ask'; return out }
+    S.seq.at += 1
+  }
+  return [...out, ...endSequence(S)]
+}
+
+/** The scene is over; hand back to the game. */
+export function endSequence (S) {
+  if (!S.seq) return []
+  S.seqSeen = [...new Set([...(S.seqSeen || []), S.seq.id])]
+  S.seq = null
+  S.expect = 'boot'
+  return []
+}
+
+/** The choices a sequence is waiting on, or none. */
+export function sequenceChoices (S) {
+  if (!S.seq || S.seq.awaiting !== 'choice') return []
+  const node = seqNodes(S)[S.seq.at] || {}
+  return Object.entries(node.choices || {})
+    .map(([token, c]) => ({ token, label: render(c.label, seqCtx(S)) }))
+}
+
+/**
+ * Feed the player's message to a running sequence.
+ *
+ * Returns emissions, or null when the message is not for the sequence - which
+ * only happens for a choice it does not recognise, so the caller can say so
+ * rather than silently swallowing it.
+ */
+export function answerSequence (S, cmd) {
+  if (!S.seq) return null
+  const node = seqNodes(S)[S.seq.at] || {}
+
+  if (S.seq.awaiting === 'ask') {
+    // whatever they typed, verbatim - this is a name, not a command
+    S.vars[node.ask] = String(cmd || '').trim().slice(0, 60)
+    applyBeat(S, node)
+    S.seq.at += 1
+    S.seq.awaiting = null
+    return runSequence(S)
+  }
+
+  const choice = (node.choices || {})[String(cmd || '').trim().toLowerCase()]
+  if (!choice) return null
+  applyBeat(S, choice)
+  S.seq.at += 1
+  S.seq.awaiting = null
+  const reply = seqEmit(S, { speaker: choice.speaker, art: choice.art }, choice.reply)
+  return [...reply, ...runSequence(S)]
+}
+
 // ---------------------------------------------------------------------------
 // Beats
 //

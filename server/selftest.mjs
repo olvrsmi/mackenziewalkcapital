@@ -16,6 +16,21 @@ const store = await import('./sessions.mjs')
 const { realMs, GAME_DAY_SECONDS } = await import('./time.mjs')
 const { renderEmission } = await import('./render.mjs')
 
+/**
+ * A session sitting at the world offer, past the opening scene.
+ *
+ * The intro has the floor at boot, so a block that boots and then plays tokens
+ * would have its first one bounced. Every test below that wants a playable game
+ * starts here; the intro's own block boots directly, because the scene is the
+ * thing it is testing.
+ */
+const playable = async (seed) => {
+  const S = game.newSession(seed)
+  await game.boot(S)
+  if (game.inSequence(S)) await game.handle(S, 'skip')
+  return S
+}
+
 let failures = 0
 const ok = (name, cond, detail = '') => {
   if (cond) return console.log(`  pass  ${name}`)
@@ -30,8 +45,7 @@ const ok = (name, cond, detail = '') => {
 // along fine until it ended and tried to offer three new worlds from nothing.
 {
   const chatId = 'restore'
-  const S = game.newSession(11)
-  await game.boot(S)
+  const S = await playable(11)
   await game.handle(S, '1'); await game.handle(S, 'i')
   await game.handle(S, '250'); await game.handle(S, '1'); await game.handle(S, '5')
   await store.save(chatId, S)
@@ -104,8 +118,7 @@ const ok = (name, cond, detail = '') => {
 // A 250G stake returning 249.975 displayed as a flat day but settled a hair
 // under budget, and billed the -5% meant for a loss.
 {
-  const S = game.newSession(3)
-  await game.boot(S)
+  const S = await playable(3)
   await game.handle(S, '1'); await game.handle(S, 'i')
   await game.handle(S, '250.7')
   ok('a fractional stake is rounded to whole G',
@@ -124,8 +137,7 @@ const ok = (name, cond, detail = '') => {
      process.env.MW_POST_MS != null,
      `POST_MS=${game.POST_MS} POST_GAME_SECONDS=${game.POST_GAME_SECONDS}`)
 
-  const S = game.newSession(31)
-  await game.boot(S)
+  const S = await playable(31)
   await game.handle(S, '1'); await game.handle(S, 'i')
   await game.handle(S, '250'); await game.handle(S, '1'); await game.handle(S, '6')
 
@@ -150,8 +162,7 @@ const ok = (name, cond, detail = '') => {
 
 // --- a reading and its graph are one message -------------------------------
 {
-  const S = game.newSession(41)
-  await game.boot(S)
+  const S = await playable(41)
   await game.handle(S, '1'); await game.handle(S, 'i')
   await game.handle(S, '250'); await game.handle(S, '1'); await game.handle(S, '6')
   S.run.startedMs -= realMs(2 * game.READOUT_GAME_SECONDS)
@@ -164,8 +175,7 @@ const ok = (name, cond, detail = '') => {
 
 // --- holdings are named per world ------------------------------------------
 {
-  const S = game.newSession(43)
-  await game.boot(S)
+  const S = await playable(43)
   const all = S.worlds.flatMap((w) => w.holdings)
   ok('every world names its holdings',
      S.worlds.every((w) => w.holdings.length === w.info.n),
@@ -303,14 +313,64 @@ const ok = (name, cond, detail = '') => {
      week([0, 0, 0, 0, 0, 0, 0]).last.verdict === 'failed')
 }
 
+// --- the intro ---------------------------------------------------------------
+{
+  const S = game.newSession(91)
+  const opening = await game.boot(S)
+  ok('a first sitting opens with the scene, not the brochure',
+     game.inSequence(S) && !opening.emissions.some((e) => /premier neo-market/.test(e.text || '')))
+  ok('and bursts to the first thing it wants',
+     S.seq.awaiting === 'choice', String(S.seq?.awaiting))
+  ok('offering however many choices the writer wrote',
+     game.sequenceChoices(S).length >= 2, String(game.sequenceChoices(S).length))
+  ok('art travels as its own emission',
+     opening.emissions.some((e) => e.kind === 'art'))
+  ok('and is paced, so a burst does not arrive all at once',
+     opening.emissions.every((e) => e.pace))
+
+  // a scene has the floor: an unrecognised command must not reach the game
+  const before = S.seq.at
+  const nudged = await game.handle(S, '1')
+  ok('a scene holds the floor', S.seq && S.seq.at === before,
+     'a game command must not get through a running scene')
+  ok('and says so', /still talking/i.test(nudged.emissions[0]?.text || ''))
+
+  const after = await game.handle(S, 'a')
+  ok('answering plays the branch and carries on',
+     !game.inSequence(S) && S.seqSeen.includes('intro'))
+  ok('then the game arrives', after.emissions.some((e) => /Round/.test(e.text || '')))
+  ok('and the brochure is not read to someone who was walked in',
+     !after.emissions.some((e) => /premier neo-market/.test(e.text || '')))
+
+  // once only
+  const again = await game.boot(S)
+  ok('the intro does not play twice', !game.inSequence(S))
+  void again
+
+  // skippable
+  const skipper = game.newSession(92)
+  await game.boot(skipper)
+  const skipped = await game.handle(skipper, 'skip')
+  ok('skip ends the scene and starts the game',
+     !game.inSequence(skipper) && skipped.emissions.some((e) => /Round/.test(e.text || '')))
+
+  // an empty sequence must be harmless, since the tutorial is one
+  const empty = game.newSession(93)
+  ok('an empty sequence simply does not play',
+     game.startSequence(empty, 'tutorial').length === 0 && !game.inSequence(empty))
+  ok('and a sequence that does not exist is the same',
+     game.startSequence(empty, 'nope_not_here').length === 0)
+}
+
 // --- beats -----------------------------------------------------------------
 {
-  const S = game.newSession(77)
-  ok('a new desk is on probation', S.probation === true)
+  ok('a new desk is on probation', game.newSession(77).probation === true)
 
-  // day one rides boot, so it has already fired by the time we look
-  await game.boot(S)
-  ok('the day-one setpiece fires at boot, not on the first day close',
+  // Day one rides boot - but boot returns early for the opening scene, so the
+  // beat lands on the boot that happens once the scene is done. Which is the
+  // right order: the himbo walks you to the desk before Harold is mentioned.
+  const S = await playable(77)
+  ok('the day-one setpiece fires once the opening scene is done',
      S.beatsSeen.includes('arrival'), JSON.stringify(S.beatsSeen))
   ok('and only once', game.beatDue(S) === null)
 
@@ -380,8 +440,7 @@ const ok = (name, cond, detail = '') => {
 
 // --- the bell ----------------------------------------------------------------
 {
-  const S = game.newSession(5)
-  await game.boot(S)
+  const S = await playable(5)
   await game.handle(S, '1'); await game.handle(S, 'i')
   await game.handle(S, '250'); await game.handle(S, '1')
   S.dayStartedMs = Date.now() - realMs(GAME_DAY_SECONDS - 2.5 * game.READOUT_GAME_SECONDS)
