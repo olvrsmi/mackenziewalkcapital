@@ -18,31 +18,33 @@ ssh -i ~/.ssh/your-key root@your.box 'bash -s' < deploy/setup.sh
 ```
 
 That is self-contained: it clones this repository itself, installs Node 22 and
-a Python venv, creates an unprivileged `mw` user, installs the Node
+a Python venv, creates an unprivileged `mw` user, installs both sets of
 dependencies, registers the services, and turns on a firewall that allows only
-SSH.
-
-It does **not** install the QDrive engine, which lives in two private
-repositories — `moth-quantum/qdrive-api` and `moth-quantum/QDrive`. They cannot
-be vendored here, because this repository is public; and they are not cloned on
-the box either, because that would need deploy keys on repositories we do not
-administer. `deploy.sh` sends a checkout of each from a machine that already has
-them, which needs no permission anywhere. So `setup.sh` leaves a note and moves
-on, and the first `deploy.sh` completes the box.
-
-It leaves an empty `.env` for you to fill in:
+SSH. It does not start the game, because there is no token yet. Put the
+**deployed** bot's token in — not the development one:
 
 ```
 ssh -i ~/.ssh/your-key root@your.box nano /opt/mackenziewalk/app/server/.env
 ```
 
-Put the **deployed** bot's token in it — not the development one. Then check
-the box before trusting it, and start:
+Then the first deploy completes the box — it sends the QDrive engine, which
+`setup.sh` cannot, and starts the service:
+
+```
+./deploy/deploy.sh -i ~/.ssh/your-key root@your.box
+```
+
+Check it before trusting it:
 
 ```
 ssh -i ~/.ssh/your-key root@your.box /opt/mackenziewalk/app/deploy/preflight.sh
-ssh -i ~/.ssh/your-key root@your.box systemctl start mackenziewalk
 ```
+
+### Wiping and starting again
+
+Nothing on the box is precious except `state/` (saved games) and `.env`. To
+rebuild from scratch, take those two, wipe, and run the three steps above; put
+`state/` back before the first deploy and the players are where they left off.
 
 ## Every time after
 
@@ -53,10 +55,10 @@ git push
 ./deploy/deploy.sh -i ~/.ssh/your-key root@your.box
 ```
 
-That moves the box to your current branch's head, reinstalls anything whose
-dependencies changed, checks the model still answers, restarts, and prints the
-status. It refuses to run if what you are asking for is not on GitHub yet,
-rather than silently deploying something older.
+That moves the box to your current branch's head, sends the engine, reinstalls
+anything whose dependencies changed, proves the engine runs *as the service
+user*, restarts, and says which bot connected. It refuses to run if what you are
+asking for is not on GitHub yet, rather than silently deploying something older.
 
 ```
 -i PATH        ssh identity file, same as ssh's own (or set MW_SSH_KEY)
@@ -65,6 +67,18 @@ rather than silently deploying something older.
 --no-engine    only game code changed, skip sending QDrive
 --dry-run      say what would happen, change nothing
 ```
+
+### Two halves
+
+`deploy.sh` runs here: it checks the commit is on GitHub, sends the engine, and
+pipes `deploy/remote.sh` to the box. **Everything the box does is in that one
+file**, in plain bash, with no ssh quoting to unpick — and `setup.sh` runs the
+same file for its install step, so there is one implementation.
+
+It takes `MW_ROOT`, so it can be run against a scratch tree on a laptop. That is
+how it is tested: a fresh anonymous clone from GitHub, the engine sent by the
+same rsync, a fresh venv, and every step through to the engine actually
+stepping a world — everything but root ownership and systemd.
 
 Because the box is always at a named commit, `git log --oneline -1` there tells
 you exactly what your playtesters are on.
@@ -115,6 +129,7 @@ because that mistake takes the game down rather than erroring loudly.
 | event log | `/opt/mackenziewalk/logs/events.jsonl` |
 | backups | `/opt/mackenziewalk/backups`, nightly, 14 kept |
 | service | `mackenziewalk.service`, as user `mw` |
+| box-side deploy | `deploy/remote.sh` — run by `deploy.sh` and `setup.sh` |
 | console | `journalctl -u mackenziewalk` |
 
 Data sits outside the working tree, so `git reset --hard` is never near a saved

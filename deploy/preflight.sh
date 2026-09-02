@@ -105,14 +105,18 @@ if [ -x "$VENV" ] && [ -f "$MODEL/engine.py" ]; then
   # actually be played. Scout runs it.
   spec=$(cd "$MODEL" && ls specs/*.json 2>/dev/null | grep -v '_stats' | head -1)
   spec=$(basename "${spec:-none.json}" .json)
-  out=$(cd "$MODEL" && MW_QDRIVE_API_SRC="$SRC" \
-        printf '{"op":"scout","circuit":"%s","readouts":2}' "$spec" \
-        | (cd "$MODEL" && MW_QDRIVE_API_SRC="$SRC" limited 300 "$VENV" engine.py 2>/dev/null))
+  # ...and as the service user, since that is who has to succeed: a check that
+  # passes as root says nothing about what mw can read or reach.
+  run_as () { if id "$USER_NAME" >/dev/null 2>&1 && command -v runuser >/dev/null && [ "$(id -u)" -eq 0 ]
+              then runuser -u "$USER_NAME" -- "$@"; else "$@"; fi; }
+  out=$(cd "$MODEL" && printf '{"op":"scout","circuit":"%s","readouts":2}' "$spec" \
+        | run_as env MW_QDRIVE_API_SRC="$SRC" PYTHONDONTWRITEBYTECODE=1 \
+            $( [ -n "$TIMEOUT_BIN" ] && echo "$TIMEOUT_BIN 300" ) "$VENV" engine.py 2>/dev/null)
   n=$(printf '%s' "$out" | node -e '
     let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{
       try{const j=JSON.parse(s);process.stdout.write(String(j.ok?j.z.length:0))}
       catch{process.stdout.write("0")}})' 2>/dev/null)
-  if [ "${n:-0}" -gt 0 ]; then ok "the engine runs - $spec stepped $n times"
+  if [ "${n:-0}" -gt 0 ]; then ok "the engine runs as $USER_NAME - $spec stepped $n times"
   else bad "the engine did not run - a world cannot be played"; fi
 else
   skipf "model call (no venv)"

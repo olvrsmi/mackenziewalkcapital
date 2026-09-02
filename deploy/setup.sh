@@ -32,10 +32,8 @@ command -v apt-get >/dev/null || die "this expects Debian or Ubuntu"
 say "Packages"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-# git is needed twice over: to clone this, and because one model dependency
-# installs straight from a git URL. build-essential is insurance - the wheels
-# we need are prebuilt for x86_64, but a fallback source build with no
-# compiler fails obscurely.
+# build-essential is insurance: the wheels we need are prebuilt for x86_64, but
+# a fallback source build with no compiler fails obscurely.
 apt-get install -y -qq \
   curl ca-certificates gnupg git tar \
   python3 python3-venv python3-dev build-essential ufw >/dev/null
@@ -116,6 +114,7 @@ if [ -f "$ENV_FILE" ]; then
   ensure MW_QDRIVE_API_SRC "$ROOT/vendor/qdrive-api/src"
   ensure MW_STATE_DIR "$ROOT/state"
   ensure MW_LOG_FILE "$ROOT/logs/events.jsonl"
+  ensure MW_STEPS 10
 else
   cat > "$ENV_FILE" <<ENVEOF
 # The deployed bot, from @BotFather. Keep the development bot's token OUT of
@@ -131,7 +130,7 @@ MW_TIME_SCALE=24
 MW_STATE_DIR=$ROOT/state
 MW_LOG_FILE=$ROOT/logs/events.jsonl
 
-# qdrive-api's src/, cloned by setup.sh. Its modules are flat and one of them is
+# qdrive-api's src/, sent by deploy.sh. Its modules are flat and one of them is
 # also called engine.py, so it is loaded by path rather than pip-installed.
 MW_QDRIVE_API_SRC=$ROOT/vendor/qdrive-api/src
 
@@ -153,20 +152,11 @@ chown "root:$USER_NAME" "$ENV_FILE"
 chmod 640 "$ENV_FILE"
 
 say "Dependencies"
-[ -d "$APP/model/.venv" ] || python3 -m venv "$APP/model/.venv"
-"$APP/model/.venv/bin/pip" install -q --upgrade pip
-# QDrive comes from the clone rather than being fetched again over ssh, so the
-# box needs GitHub access only in the step above.
-"$APP/model/.venv/bin/pip" install -q -r "$APP/model/requirements.txt"
-if [ -d "$VENDOR/QDrive/src" ]; then
-  "$APP/model/.venv/bin/pip" install -q -e "$VENDOR/QDrive"
-else
-  note "QDrive not installed yet - deploy.sh will"
-fi
-# Compile now, as root, so the read-only runtime never tries to write bytecode.
-"$APP/model/.venv/bin/python3" -m compileall -q "$APP/model" >/dev/null 2>&1 || true
-( cd "$APP/server" && npm ci --omit=dev --silent )
-note "python and node dependencies installed"
+# The install itself lives in remote.sh, which deploy.sh runs on every deploy -
+# one implementation, exercised the same way each time. No engine yet on a fresh
+# box, so it installs everything else and skips the engine check; no token yet,
+# so it does not start the service.
+MW_ROOT="$ROOT" MW_USER="$USER_NAME" MW_DEPS=1 MW_RESTART=0 bash "$APP/deploy/remote.sh"
 
 say "Services"
 for unit in mackenziewalk.service mackenziewalk-backup.service mackenziewalk-backup.timer; do

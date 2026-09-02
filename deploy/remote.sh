@@ -1,0 +1,174 @@
+#!/usr/bin/env bash
+#
+# remote.sh - the box's half of a deploy. Runs ON the box, as root.
+#
+# deploy.sh feeds it over ssh; setup.sh runs it for the shared install steps.
+# Everything the box does lives here, in plain bash, so it reads without
+# unpicking three layers of quoting - and so it can be run against a scratch
+# tree with MW_ROOT, which is how it gets tested somewhere other than a box.
+#
+#   MW_ROOT      /opt/mackenziewalk          where everything lives
+#   MW_REPO      the clone's origin           pinned on every run
+#   MW_REF       commit, tag or branch        move the clone here; empty leaves it
+#   MW_DEPS      1                            install or refresh dependencies
+#   MW_RESTART   1                            restart the service at the end
+#   MW_USER      mw                           the service user
+#   MW_PYTHON    python3                      interpreter for a new venv
+
+set -euo pipefail
+
+ROOT=${MW_ROOT:-/opt/mackenziewalk}
+APP=$ROOT/app
+VENDOR=$ROOT/vendor
+REPO=${MW_REPO:-https://github.com/olvrsmi/mackenziewalkcapital.git}
+REF=${MW_REF:-}
+DEPS=${MW_DEPS:-1}
+RESTART=${MW_RESTART:-1}
+USER_NAME=${MW_USER:-mw}
+PY=${MW_PYTHON:-python3}
+ENV_FILE=$APP/server/.env
+VENV=$APP/model/.venv
+
+say ()  { printf '\n  \033[1m%s\033[0m\n' "$*"; }
+note () { printf '    %s\n' "$*"; }
+die ()  { printf '\n  ERROR: %s\n\n' "$*" >&2; exit 1; }
+
+# What this host can do. A scratch tree on a laptop has neither a service user
+# nor systemd; the steps that need them say so and carry on, so the rest still
+# gets exercised.
+IS_ROOT=0;      [ "$(id -u)" -eq 0 ] && IS_ROOT=1
+HAVE_USER=0;    id "$USER_NAME" >/dev/null 2>&1 && HAVE_USER=1
+HAVE_SYSTEMD=0; command -v systemctl >/dev/null && [ -d /run/systemd/system ] && HAVE_SYSTEMD=1
+as_service_user () {
+  if [ "$IS_ROOT" -eq 1 ] && [ "$HAVE_USER" -eq 1 ]; then runuser -u "$USER_NAME" -- "$@"
+  else "$@"; fi
+}
+
+[ -d "$APP/.git" ] || die "no clone at $APP. Run setup.sh on this box first."
+
+# --- code -------------------------------------------------------------------
+if [ -n "$REF" ]; then
+  say "Code"
+  # Pinned every time. A clone made when the repository was private, or with a
+  # url carrying a credential since rotated, otherwise keeps trying to
+  # authenticate for a repository that needs none - and reports it as "could not
+  # read Username", which names neither cause. No terminal here to answer a
+  # prompt, so make git fail instead of waiting for one.
+  export GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=/bin/true
+  git -C "$APP" remote set-url origin "$REPO"
+  git -C "$APP" fetch --quiet --tags origin
+  git -C "$APP" reset --quiet --hard "$REF" 2>/dev/null \
+    || git -C "$APP" reset --quiet --hard "origin/$REF"
+  note "$(git -C "$APP" log --oneline -1)"
+fi
+
+# --- dependencies -----------------------------------------------------------
+if [ "$DEPS" = 1 ]; then
+  say "Dependencies"
+  if [ ! -d "$VENV" ]; then
+    "$PY" -m venv "$VENV"
+    note "venv created with $("$VENV/bin/python3" --version)"
+  fi
+  "$VENV/bin/pip" install -q --upgrade pip
+  "$VENV/bin/pip" install -q -r "$APP/model/requirements.txt"
+  if [ -d "$VENDOR/QDrive/src" ]; then
+    "$VENV/bin/pip" install -q -e "$VENDOR/QDrive"
+    note "QDrive installed from $VENDOR/QDrive"
+  else
+    note "no engine in $VENDOR yet - deploy.sh sends it"
+  fi
+  # Compiled now, as root, so the read-only runtime never wants to write bytecode
+  "$VENV/bin/python3" -m compileall -q "$APP/model" "$VENDOR" >/dev/null 2>&1 || true
+  ( cd "$APP/server" && npm ci --omit=dev --silent )
+  note "python and node dependencies installed"
+fi
+
+# --- permissions ------------------------------------------------------------
+# Always, because the dependency step above (and any chown -R) undoes them.
+say "Permissions"
+if [ "$IS_ROOT" -eq 1 ]; then
+  # the clone is root's, so the game cannot rewrite the code it is running
+  chown -R root:root "$APP"
+  # ...and so is the directory holding it, or the service user could rename it
+  chown root:root "$ROOT"; chmod 755 "$ROOT"
+  if [ "$HAVE_USER" -eq 1 ]; then
+    # root owns .env so the game cannot rewrite its own token; the group is the
+    # only reason the service can read it at all, and chown -R just took it away
+    [ -f "$ENV_FILE" ] && { chown "root:$USER_NAME" "$ENV_FILE"; chmod 640 "$ENV_FILE"; }
+    for d in state logs backups; do
+      mkdir -p "$ROOT/$d"; chown "$USER_NAME:$USER_NAME" "$ROOT/$d"; chmod 750 "$ROOT/$d"
+    done
+    note "code read-only to $USER_NAME; state, logs, backups writable"
+  else
+    note "no user $USER_NAME on this host - ownership left as is"
+  fi
+else
+  note "not root - ownership left as is"
+fi
+
+[ -f "$ENV_FILE" ] || die "no $ENV_FILE - setup.sh writes it"
+
+# --- can the service actually start? ----------------------------------------
+# These run as the service user, because that is who has to succeed. The .env
+# was once unreadable to it with the mode looking correct, and the engine was
+# once looked for in a directory nothing wrote to. Neither showed up in checks
+# that ran as root.
+say "As $USER_NAME"
+as_service_user test -r "$ENV_FILE" \
+  || die "$USER_NAME cannot read $ENV_FILE - the service dies at import.
+         chown root:$USER_NAME $ENV_FILE && chmod 640 $ENV_FILE"
+note ".env readable"
+
+state_dir=$(cd "$APP/server" && as_service_user node -e '
+  import("./env.mjs").then(() => process.stdout.write(process.env.MW_STATE_DIR || ""))' 2>/dev/null || true)
+[ -n "$state_dir" ] || die "env.mjs did not load .env as $USER_NAME"
+as_service_user test -w "$state_dir" \
+  || die "$USER_NAME cannot write $state_dir (MW_STATE_DIR) - saved games would be lost"
+note ".env loads; saved games go to $state_dir"
+
+if [ -d "$VENDOR/qdrive-api/src" ]; then
+  # scout, not worlds: worlds answers from the committed cache without starting
+  # the engine, so it passes on a box where no world can be played
+  spec=$(cd "$APP/model/specs" && ls *.json | grep -v '^_' | head -1); spec=${spec%.json}
+  out=$(cd "$APP/model" && printf '{"op":"scout","circuit":"%s","readouts":2}' "$spec" \
+        | as_service_user env MW_QDRIVE_API_SRC="$VENDOR/qdrive-api/src" PYTHONDONTWRITEBYTECODE=1 \
+            "$VENV/bin/python3" engine.py 2>/dev/null || true)
+  if printf '%s' "$out" | "$VENV/bin/python3" -c '
+import sys, json
+d = json.loads(sys.stdin.read() or "{}")
+sys.exit(0 if d.get("ok") and len(d.get("z", [])) == 2 else 1)' 2>/dev/null; then
+    note "engine runs - $spec stepped twice"
+  else
+    err=$(printf '%s' "$out" | "$VENV/bin/python3" -c 'import sys,json
+try: print(json.loads(sys.stdin.read()).get("error","no output"))
+except Exception: print("no output")' 2>/dev/null)
+    die "the engine did not run as $USER_NAME: ${err:-no output}"
+  fi
+else
+  note "no engine at $VENDOR yet - deploy.sh sends it (skipping the engine check)"
+fi
+
+# --- the service ------------------------------------------------------------
+if [ "$RESTART" = 1 ]; then
+  say "Service"
+  if [ "$HAVE_SYSTEMD" -eq 0 ]; then
+    note "no systemd on this host - not restarting"
+  elif ! grep -qE '^TELEGRAM_BOT_TOKEN=.+' "$ENV_FILE"; then
+    note "TELEGRAM_BOT_TOKEN is empty in $ENV_FILE - not starting."
+    note "Fill it in, then:  systemctl start mackenziewalk"
+  else
+    # a unit that tripped its start limit refuses to restart until reset, so a
+    # box brought down by a bug could not be recovered by deploying the fix
+    systemctl reset-failed mackenziewalk 2>/dev/null || true
+    systemctl restart mackenziewalk
+    sleep 6
+    if systemctl is-active --quiet mackenziewalk; then
+      who=$(journalctl -u mackenziewalk -n 20 --no-pager 2>/dev/null | grep -o 'connected as @[A-Za-z0-9_]*' | tail -1)
+      note "running${who:+ - $who}"
+    else
+      journalctl -u mackenziewalk -n 25 --no-pager 2>/dev/null | sed 's/^/    /'
+      die "the service did not come up - the journal above says why"
+    fi
+  fi
+fi
+printf '\n'
