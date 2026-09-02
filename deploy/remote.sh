@@ -53,9 +53,12 @@ as_service_user () {
 # repository. The remote url alone does not fix that. Ignoring global and system
 # config does; the repository's own config is all that is left, and we set it.
 clean_git () {
+  # and never hang: a credential helper waiting on something can block a fetch
+  # indefinitely, which on a box looks like a deploy that simply stopped
+  local guard=(); command -v timeout >/dev/null && guard=(timeout 300)
   GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
   GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=/bin/true \
-    git -c credential.helper= -c http.extraheader= "$@"
+    "${guard[@]}" git -c credential.helper= -c http.extraheader= "$@"
 }
 # What would have made git authenticate, with any secret masked.
 git_auth_sources () {
