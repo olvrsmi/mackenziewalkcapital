@@ -39,6 +39,28 @@ apt-get install -y -qq \
   python3 python3-venv python3-dev build-essential ufw >/dev/null
 note "$(python3 --version)"
 
+say "Network"
+# Everything after this needs GitHub. On a fresh Hetzner box the usual failure
+# is IPv6 configured but not routing: github.com resolves to an AAAA record
+# first and the connection dies, while IPv4 would have worked. Say which.
+if curl -fsS -o /dev/null --max-time 20 https://github.com 2>/dev/null; then
+  note "github.com reachable"
+elif curl -4 -fsS -o /dev/null --max-time 20 https://github.com 2>/dev/null; then
+  # Prefer IPv4 in the resolver so git, curl, pip and npm all stop trying the
+  # broken route first. One line in gai.conf; the standard fix for this host.
+  if ! grep -q '^precedence ::ffff:0:0/96  *100' /etc/gai.conf 2>/dev/null; then
+    printf '\n# added by mackenziewalk setup.sh: IPv6 does not route from this box\nprecedence ::ffff:0:0/96  100\n' >> /etc/gai.conf
+  fi
+  note "github.com reachable over IPv4 only - IPv6 is configured but does not route"
+  note "set /etc/gai.conf to prefer IPv4 so git, pip and npm stop trying it first"
+  curl -fsS -o /dev/null --max-time 20 https://github.com 2>/dev/null \
+    || die "still cannot reach github.com after preferring IPv4"
+else
+  die "cannot reach https://github.com at all:
+         $(curl -sS -o /dev/null --max-time 20 https://github.com 2>&1 | tail -1)
+       Check DNS (resolvectl status) and the default route (ip route)."
+fi
+
 say "Node"
 have=$(node --version 2>/dev/null | sed 's/^v//' | cut -d. -f1 || true)
 if [ -n "${have:-}" ] && [ "$have" -ge "$NODE_MAJOR" ] 2>/dev/null; then
@@ -80,13 +102,18 @@ say "Code"
 export GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=/bin/true
 if [ -d "$APP/.git" ]; then
   git -C "$APP" remote set-url origin "$REPO"
-  git -C "$APP" fetch --quiet origin "$BRANCH"
+  git -C "$APP" fetch --quiet origin "$BRANCH" \
+    || die "could not fetch $REPO - $(git -C "$APP" fetch origin "$BRANCH" 2>&1 | tail -1)"
   git -C "$APP" reset --quiet --hard "origin/$BRANCH"
   note "updated to $(git -C "$APP" log --oneline -1)"
 else
   mkdir -p "$ROOT"
-  git clone --quiet --branch "$BRANCH" "$REPO" "$APP" \
-    || die "could not clone $REPO - is it public, or does this box need a key?"
+  if ! err=$(git clone --quiet --branch "$BRANCH" "$REPO" "$APP" 2>&1); then
+    die "could not clone $REPO
+         git said: ${err:-nothing}
+       If that mentions a username or authentication, the repository is not
+       public. If it mentions resolving or connecting, it is the network."
+  fi
   note "cloned $(git -C "$APP" log --oneline -1)"
 fi
 chown -R root:root "$APP"
