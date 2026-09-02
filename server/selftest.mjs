@@ -194,6 +194,11 @@ const ok = (name, cond, detail = '') => {
   // a world where nothing moves at all: every value identical, so lo === hi
   ok('draws a world that never moves', png(3, rows(3, () => 500)).length > 0)
   // and one spanning two decades, where the log axis earns its keep
+  ok('draws a ghost of the uncoupled run behind a held holding',
+     renderEmission({ kind: 'traces', n: 3, holdings: ['AAA', 'BBB', 'CCC'],
+       z: rows(3, (k, q) => 100 * (q + 1) + k), priced: rows(3, (k, q) => 100 * (q + 1) + k),
+       clean: rows(3, (k, q) => 100 * (q + 1) + k * 2), upto: 5, totalReadouts: 6,
+       target: 1, interventionAt: 2, title: 'ghost' }).length > 0)
   ok('draws across two decades', png(4, rows(4, (k, q) => 50 * Math.pow(4, q) + k)).length > 0)
 }
 

@@ -45,6 +45,13 @@ const QCOL = ['#FF6C60', '#A8FF60', '#96CBFE', '#FF73FD',
               '#0B85DF', '#B18A3D']
 const qcol = (q) => QCOL[q % QCOL.length]
 
+/** The same hue, washed toward the background - a ghost of a line, not a line. */
+function pastel (hex, mix = 0.55) {
+  const n = parseInt(hex.slice(1), 16)
+  const to = (c) => Math.round(c + (255 - c) * mix)
+  return `rgba(${to((n >> 16) & 255)},${to((n >> 8) & 255)},${to(n & 255)},.45)`
+}
+
 // Roboto Mono for every number and chart label, so figures line up in columns;
 // Roboto Condensed for the header, which has to fit a world's name at 640px.
 const MONO = '"Roboto Mono", "Courier New", monospace'
@@ -90,12 +97,12 @@ function frame (height, title, draw) {
  * any caller that has not been through the pricing - readings can be negative,
  * so that path stays linear.
  */
-export function renderTraces ({ n, z, priced, upto, totalReadouts, target = null,
+export function renderTraces ({ n, z, priced, clean, upto, totalReadouts, target = null,
                                 interventionAt = null, holdings, title }) {
   const series = priced || z
   const log = Boolean(priced)
   return frame(SQUARE, title, (ctx, W) => {
-    const padL = 54, padR = 92, padT = 50, padB = 40
+    const padL = 74, padR = 92, padT = 50, padB = 40
     const plotW = W - padL - padR
     const plotH = SQUARE - padT - padB
     const total = Math.max(1, totalReadouts - 1)
@@ -119,9 +126,13 @@ export function renderTraces ({ n, z, priced, upto, totalReadouts, target = null
       ctx.moveTo(padL, y(v))
       ctx.lineTo(padL + plotW, y(v))
       ctx.stroke()
+      // Inside the plot, not outside it: the margin belongs to the tickers now,
+      // and an axis value sharing that space printed on top of a holding's name.
       ctx.fillStyle = DIM
+      ctx.textAlign = 'left'
       ctx.fillText(log ? Math.round(v).toLocaleString('en-GB') : v.toFixed(0),
-                   padL - 8, y(v) + 4)
+                   padL + 6, y(v) - 4)
+      ctx.textAlign = 'right'
     }
 
     // where the coupling was made, and everything after it
@@ -137,19 +148,36 @@ export function renderTraces ({ n, z, priced, upto, totalReadouts, target = null
       ctx.setLineDash([])
     }
 
+    // --- what the holding would have done ------------------------------------
+    // The clean run, drawn behind: where the price was heading before the
+    // player touched it. Dotted and washed out, because it is a counterfactual
+    // and must never be mistaken for the line that is actually being paid on.
+    if (clean && target !== null) {
+      ctx.strokeStyle = pastel(qcol(target))
+      ctx.lineWidth = 2
+      ctx.setLineDash([4, 4])
+      ctx.beginPath()
+      clean.forEach((row, k) => {
+        const v = row[target]
+        k ? ctx.lineTo(x(k), y(v)) : ctx.moveTo(x(k), y(v))
+      })
+      ctx.stroke()
+      ctx.setLineDash([])
+    }
+
     // --- the holdings -------------------------------------------------------
     // drawn with the held one last, so it is never buried under another line
     const order = [...Array(n).keys()].sort((a, b) => (a === target) - (b === target))
     for (const q of order) {
       const isTarget = q === target
       const line = series.map((row) => row[q])
-      ctx.strokeStyle = isTarget ? AMBER : qcol(q)
+      ctx.strokeStyle = qcol(q)
       ctx.lineWidth = isTarget ? 3 : 1.6
       ctx.globalAlpha = isTarget ? 1 : 0.9
       ctx.beginPath()
       line.forEach((v, k) => (k ? ctx.lineTo(x(k), y(v)) : ctx.moveTo(x(k), y(v))))
       ctx.stroke()
-      ctx.fillStyle = isTarget ? AMBER : qcol(q)
+      ctx.fillStyle = qcol(q)
       line.forEach((v, k) => {
         ctx.beginPath()
         ctx.arc(x(k), y(v), isTarget ? 3 : 2, 0, Math.PI * 2)
@@ -162,23 +190,35 @@ export function renderTraces ({ n, z, priced, upto, totalReadouts, target = null
     // At the right edge, at each line's last value - but seven holdings can sit
     // within a few pixels of one another, so they are pushed apart into reading
     // order rather than allowed to overprint.
-    const labels = order.map((q) => ({
-      q,
-      at: y(series[series.length - 1][q]),
-      text: log ? Math.round(series[series.length - 1][q]).toLocaleString('en-GB')
-                : series[series.length - 1][q].toFixed(3),
-    })).sort((a, b) => a.at - b.at)
-    spread(labels, 15, padT + 6, padT + plotH - 6)
+    const label = (at) => order.map((q) => ({ q, at: at(q) })).sort((a, b) => a.at - b.at)
 
-    for (const l of labels) {
+    // opening, at the left: which line is which before anything has happened
+    const opens = label((q) => y(series[0][q]))
+    spread(opens, 14, padT + 6, padT + plotH - 6)
+    for (const l of opens) {
       const isTarget = l.q === target
+      ctx.font = `${isTarget ? 'bold ' : ''}11px ${MONO}`
+      ctx.textAlign = 'right'
+      // amber marks the held holding by its NAME, so the line itself can keep
+      // the colour it had when the player was choosing between them
+      ctx.fillStyle = isTarget ? AMBER : qcol(l.q)
+      ctx.fillText(holding(l.q, holdings), padL - 8, l.y + 4)
+    }
+
+    // and the current quote at the right
+    const nows = label((q) => y(series[series.length - 1][q]))
+    spread(nows, 15, padT + 6, padT + plotH - 6)
+    for (const l of nows) {
+      const isTarget = l.q === target
+      const v = series[series.length - 1][l.q]
       ctx.font = `${isTarget ? 'bold ' : ''}12px ${MONO}`
       ctx.textAlign = 'left'
       ctx.fillStyle = isTarget ? AMBER : qcol(l.q)
       ctx.fillText(holding(l.q, holdings), padL + plotW + 8, l.y + 4)
       ctx.fillStyle = isTarget ? AMBER : INK
       ctx.textAlign = 'right'
-      ctx.fillText(l.text, W - 8, l.y + 4)
+      ctx.fillText(log ? Math.round(v).toLocaleString('en-GB') : v.toFixed(3),
+                   W - 8, l.y + 4)
     }
 
     // --- the foot -----------------------------------------------------------
@@ -258,7 +298,7 @@ export function renderEmission (e) {
   switch (e.kind) {
     case 'traces':
       return renderTraces({
-        n: e.n, z: e.z, priced: e.priced, upto: e.upto,
+        n: e.n, z: e.z, priced: e.priced, clean: e.clean, upto: e.upto,
         totalReadouts: e.totalReadouts,
         target: e.target, interventionAt: e.interventionAt,
         holdings: e.holdings, title: e.title,

@@ -336,6 +336,13 @@ function tracesPanel (S, upto, opts = {}) {
     // opposite way to the number printed beside it.
     priced: (opts.z || S.clean.z).slice(0, upto + 1).map(
       (row) => row.map((z, q) => quote(basePrice(S.world.info, q), z))),
+    // the uncoupled run, for the ghost line behind a held holding: where the
+    // price was going before the player touched it. Only sent while a position
+    // is open, since there is nothing to compare against otherwise.
+    clean: opts.z
+      ? S.clean.z.slice(0, upto + 1).map(
+          (row) => row.map((z, q) => quote(basePrice(S.world.info, q), z)))
+      : null,
     upto,
     totalReadouts: S.world.readouts,
     target: opts.target ?? null,
@@ -410,31 +417,24 @@ export function offerWorlds (S, rnd) {
 export function sceneInvestment (S) {
   const k = S.readoutIndex
   S.expect = 'invest'
-  const out = []
-  if (k === 0) {
-    // The sheet replaces the gate map. A picture of the specification's wiring
-    // was a picture of a circuit, and a player is not buying a circuit - the
-    // same structure said as exposures is the market's version of it.
-    out.push(text(t('scenes.overview', {
+  // The listings ride on the entry message, which goes out before the model is
+  // called, so the sheet fills the wait rather than arriving after it. And the
+  // standing here is the caption on the plot it describes: one message, one
+  // picture, one thing to read.
+  return [{
+    ...tracesPanel(S, k),
+    caption: t('scenes.investment', {
       world: S.world.name,
-      opportunities: S.world.info.n,
-      rows: overview(S.world.info, S.world.holdings)
-        .map((h) => t('scenes.overview_row', h)).join('\n'),
-    })))
-  }
-  out.push(tracesPanel(S, k))
-  out.push(text(t('scenes.investment', {
-    world: S.world.name,
-    moment: moment(k),
-    progress: k,
-    total: S.world.readouts - 1,
-    coherence: S.coherence.toFixed(3),
-    coherence_raw: S.coherence,
-    balance: money(S.balance),
-    balance_raw: S.balance,
-    last_chance: k === S.world.readouts - 2,
-  })))
-  return out
+      moment: moment(k),
+      progress: k,
+      total: S.world.readouts - 1,
+      coherence: S.coherence.toFixed(3),
+      coherence_raw: S.coherence,
+      balance: money(S.balance),
+      balance_raw: S.balance,
+      last_chance: k === S.world.readouts - 2,
+    }),
+  }]
 }
 
 export function sceneMarket (S) {
@@ -605,6 +605,8 @@ export async function handle (S, raw, emit = null) {
       const pr = prospectus(S.world.info)
       const entered = text(t('scenes.entered', {
         world: S.world.name,
+        rows: overview(S.world.info, S.world.holdings)
+          .map((h) => t('scenes.overview_row', h)).join('\n'),
         opportunities: pr.opportunities,
         complexity: pr.complexity,
         monopoly: pr.monopoly,

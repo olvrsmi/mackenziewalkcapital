@@ -403,10 +403,15 @@ def run(spec_id, steps, direction, coherence, invest_at=None, target=None):
 
     for k in range(steps):
         targets = list(spec['targets'])
+        # Two separate moments, and they used to be one. The apparatus JOINS the
+        # circuit at invest_at - an unentangled qubit, which changes nothing
+        # anyone can read. It COUPLES from the step after, so the reading the
+        # player bought at is the reading they were shown: coupling on the same
+        # step moved the quote they had just agreed to.
         joined = invest_at is not None and k >= int(invest_at)
-        if joined:
-            if k == int(invest_at):
-                circuit = enter(circuit, n, direction, coherence)
+        if joined and k == int(invest_at):
+            circuit = enter(circuit, n, direction, coherence)
+        if invest_at is not None and k > int(invest_at):
             targets.append({'expvals': {'ZZ': 1.0}, 'qubits': [ex, int(target)]})
 
         params = {'seed': spec['seed'], 'tomography': 1, 'targets': targets}

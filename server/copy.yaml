@@ -40,10 +40,6 @@ scenes:
     {volatility}% expected volatility{#if disconnected}
     _Holdings here do not all connect._{/if}
 
-  # {world} {rows} {opportunities}
-  overview: |
-    **{world}** — listings
-
     {rows}
 
   # one row per holding: {holding} {price} {contracted} {exposure} {exposed}
