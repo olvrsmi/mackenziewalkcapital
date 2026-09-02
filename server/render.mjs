@@ -53,6 +53,8 @@ const SANS = '"Roboto Condensed", Arial, sans-serif'
 // Telegram scales photos to the chat width, so render at 2x for a crisp result
 const SCALE = 2
 const WIDTH = 640
+// square, as a market chart is - the row-per-holding letterbox is gone
+const SQUARE = 620
 
 function frame (height, title, draw) {
   const canvas = createCanvas(WIDTH * SCALE, height * SCALE)
@@ -75,91 +77,166 @@ function frame (height, title, draw) {
 }
 
 /**
- * <Z> for every circuit qubit across the readouts seen so far.
- * `target` and `interventionAt` are null before an investment is placed.
+ * Every holding's quote, on one shared logarithmic axis.
+ *
+ * Shared, because a market is a market: holdings have to be comparable, and a
+ * row apiece said nothing about which was dearer. Logarithmic, because within
+ * one world quotes run from about 100G to about 3,000G, and on a linear axis the
+ * cheap ones flatten to a straight line while the dear ones use the whole frame.
+ * On a log axis a 2% move is the same height wherever it happens, which is both
+ * what a market chart does and the only way seven holdings share a frame legibly.
+ *
+ * `priced` is the quote series. `z` is the raw reading, kept as a fallback for
+ * any caller that has not been through the pricing - readings can be negative,
+ * so that path stays linear.
  */
 export function renderTraces ({ n, z, priced, upto, totalReadouts, target = null,
                                 interventionAt = null, holdings, title }) {
-  const H = 48 + n * 26 + 30
-  return frame(H, title, (ctx, W) => {
-    const padL = 52, padR = 66, padT = 48
+  const series = priced || z
+  const log = Boolean(priced)
+  return frame(SQUARE, title, (ctx, W) => {
+    const padL = 54, padR = 92, padT = 50, padB = 40
     const plotW = W - padL - padR
+    const plotH = SQUARE - padT - padB
     const total = Math.max(1, totalReadouts - 1)
     const x = (k) => padL + (k / total) * plotW
 
+    const flat = series.flat().filter((v) => Number.isFinite(v))
+    let lo = Math.min(...flat), hi = Math.max(...flat)
+    if (log) { lo /= 1.08; hi *= 1.08 } else { lo = Math.min(lo, -1); hi = Math.max(hi, 1) }
+    if (!(hi > lo)) { hi = lo + 1 }
+    const y = log
+      ? (v) => padT + plotH - (Math.log(v) - Math.log(lo)) / (Math.log(hi) - Math.log(lo)) * plotH
+      : (v) => padT + plotH - (v - lo) / (hi - lo) * plotH
+
+    // --- the frame ----------------------------------------------------------
+    ctx.font = `11px ${MONO}`
+    ctx.textAlign = 'right'
+    for (const v of log ? logTicks(lo, hi) : [-1, 0, 1]) {
+      ctx.strokeStyle = LINE
+      ctx.lineWidth = 1
+      ctx.beginPath()
+      ctx.moveTo(padL, y(v))
+      ctx.lineTo(padL + plotW, y(v))
+      ctx.stroke()
+      ctx.fillStyle = DIM
+      ctx.fillText(log ? Math.round(v).toLocaleString('en-GB') : v.toFixed(0),
+                   padL - 8, y(v) + 4)
+    }
+
+    // where the coupling was made, and everything after it
     if (interventionAt !== null) {
-      ctx.fillStyle = 'rgba(243,144,0,.10)'
-      ctx.fillRect(x(interventionAt), padT - 8,
-                   x(total) - x(interventionAt), n * 26 + 10)
+      ctx.fillStyle = 'rgba(243,144,0,.08)'
+      ctx.fillRect(x(interventionAt), padT, x(total) - x(interventionAt), plotH)
       ctx.strokeStyle = AMBER
       ctx.setLineDash([3, 3])
       ctx.beginPath()
-      ctx.moveTo(x(interventionAt), padT - 8)
-      ctx.lineTo(x(interventionAt), padT + n * 26 + 2)
+      ctx.moveTo(x(interventionAt), padT)
+      ctx.lineTo(x(interventionAt), padT + plotH)
       ctx.stroke()
       ctx.setLineDash([])
     }
 
-    for (let q = 0; q < n; q++) {
-      const yMid = padT + q * 26 + 11
-      const amp = 9
+    // --- the holdings -------------------------------------------------------
+    // drawn with the held one last, so it is never buried under another line
+    const order = [...Array(n).keys()].sort((a, b) => (a === target) - (b === target))
+    for (const q of order) {
       const isTarget = q === target
-
-      ctx.strokeStyle = LINE
-      ctx.lineWidth = 1
+      const line = series.map((row) => row[q])
+      ctx.strokeStyle = isTarget ? AMBER : qcol(q)
+      ctx.lineWidth = isTarget ? 3 : 1.6
+      ctx.globalAlpha = isTarget ? 1 : 0.9
       ctx.beginPath()
-      ctx.moveTo(padL, yMid)
-      ctx.lineTo(padL + plotW, yMid)
+      line.forEach((v, k) => (k ? ctx.lineTo(x(k), y(v)) : ctx.moveTo(x(k), y(v))))
       ctx.stroke()
-
-      ctx.fillStyle = isTarget ? AMBER : DIM
-      ctx.font = `${isTarget ? 'bold ' : ''}12px ${MONO}`
-      ctx.textAlign = 'right'
-      ctx.fillText(holding(q, holdings), padL - 10, yMid + 4)
-
-      // Each holding is drawn against its OWN range, because quotes differ by an
-      // order of magnitude across a world and a shared linear axis flattens the
-      // cheap ones to a straight line. A shared log axis is the better answer
-      // and belongs with the square-plot work; this keeps every holding legible
-      // until then.
-      const raw = (priced || z).map((row) => row[q])
-      const lo = Math.min(...raw), hi = Math.max(...raw)
-      const mid = (lo + hi) / 2
-      const half = Math.max((hi - lo) / 2, Math.abs(mid) * 1e-6, 1e-9)
-      const series = raw.map((v) => (v - mid) / half)
-      ctx.strokeStyle = qcol(q)
-      ctx.lineWidth = isTarget ? 2.6 : 1.6
-      ctx.beginPath()
-      series.forEach((v, k) => {
-        const px = x(k), py = yMid - v * amp
-        k ? ctx.lineTo(px, py) : ctx.moveTo(px, py)
-      })
-      ctx.stroke()
-      ctx.fillStyle = qcol(q)
-      series.forEach((v, k) => {
+      ctx.fillStyle = isTarget ? AMBER : qcol(q)
+      line.forEach((v, k) => {
         ctx.beginPath()
-        ctx.arc(x(k), yMid - v * amp, isTarget ? 2.8 : 2, 0, Math.PI * 2)
+        ctx.arc(x(k), y(v), isTarget ? 3 : 2, 0, Math.PI * 2)
         ctx.fill()
       })
-
-      // the number beside the line is the quote itself, not a normalised one
-      const now = raw[raw.length - 1]
-      ctx.fillStyle = isTarget ? AMBER : INK
-      ctx.textAlign = 'left'
-      ctx.font = `${isTarget ? 'bold ' : ''}12px ${MONO}`
-      ctx.fillText(priced ? Math.round(now).toLocaleString('en-GB')
-                          : `${now >= 0 ? '+' : ''}${now.toFixed(3)}`,
-                   padL + plotW + 10, yMid + 4)
+      ctx.globalAlpha = 1
     }
 
+    // --- the labels ---------------------------------------------------------
+    // At the right edge, at each line's last value - but seven holdings can sit
+    // within a few pixels of one another, so they are pushed apart into reading
+    // order rather than allowed to overprint.
+    const labels = order.map((q) => ({
+      q,
+      at: y(series[series.length - 1][q]),
+      text: log ? Math.round(series[series.length - 1][q]).toLocaleString('en-GB')
+                : series[series.length - 1][q].toFixed(3),
+    })).sort((a, b) => a.at - b.at)
+    spread(labels, 15, padT + 6, padT + plotH - 6)
+
+    for (const l of labels) {
+      const isTarget = l.q === target
+      ctx.font = `${isTarget ? 'bold ' : ''}12px ${MONO}`
+      ctx.textAlign = 'left'
+      ctx.fillStyle = isTarget ? AMBER : qcol(l.q)
+      ctx.fillText(holding(l.q, holdings), padL + plotW + 8, l.y + 4)
+      ctx.fillStyle = isTarget ? AMBER : INK
+      ctx.textAlign = 'right'
+      ctx.fillText(l.text, W - 8, l.y + 4)
+    }
+
+    // --- the foot -----------------------------------------------------------
     ctx.fillStyle = DIM
     ctx.font = `11px ${MONO}`
     ctx.textAlign = 'left'
-    ctx.fillText('readout 0', padL, padT + n * 26 + 18)
+    ctx.fillText(t('vocabulary.moment', { index: 0 }), padL, SQUARE - 16)
     ctx.textAlign = 'right'
-    ctx.fillText(`${total}  .  ${t('plots.traces_legend')}`,
-                 padL + plotW, padT + n * 26 + 18)
+    ctx.fillText(`${t('vocabulary.moment', { index: total })}  .  ` +
+                 `${t('plots.traces_legend')}`, padL + plotW, SQUARE - 16)
   })
+}
+
+/**
+ * Gridline values inside [lo, hi], on a 1/2/5-style ladder.
+ *
+ * Thinned when there are too many, but never allowed to come back empty: a
+ * two-holding world can span 250G to 380G, which crosses no round number that a
+ * coarse ladder knows about, and a frame with no gridlines at all is worse than
+ * one with slightly odd ones.
+ */
+function logTicks (lo, hi, most = 7) {
+  const ladder = [1, 1.2, 1.5, 2, 2.5, 3, 4, 5, 6, 8]
+  const all = []
+  for (let e = Math.floor(Math.log10(lo)); e <= Math.ceil(Math.log10(hi)); e++) {
+    for (const m of ladder) {
+      const v = m * Math.pow(10, e)
+      if (v >= lo && v <= hi) all.push(v)
+    }
+  }
+  all.sort((a, b) => a - b)
+  if (!all.length) {
+    // nothing round in range: three of our own, spaced on the log axis
+    const g = (f) => Math.exp(Math.log(lo) + (Math.log(hi) - Math.log(lo)) * f)
+    return [g(0.15), g(0.5), g(0.85)].map((v) => Math.round(v))
+  }
+  if (all.length <= most) return all
+  const step = Math.ceil(all.length / most)
+  return all.filter((_, i) => i % step === 0)
+}
+
+/**
+ * Push a sorted list of {at} apart so no two are closer than `gap`, keeping them
+ * inside [min, max]. Writes `.y`. A simple forward pass then a backward one:
+ * enough for seven labels, and it never reorders them.
+ */
+function spread (items, gap, min, max) {
+  items.forEach((it) => { it.y = it.at })
+  for (let i = 1; i < items.length; i++) {
+    if (items[i].y - items[i - 1].y < gap) items[i].y = items[i - 1].y + gap
+  }
+  if (items.length && items[items.length - 1].y > max) {
+    items[items.length - 1].y = max
+    for (let i = items.length - 2; i >= 0; i--) {
+      if (items[i + 1].y - items[i].y < gap) items[i].y = items[i + 1].y - gap
+    }
+  }
+  items.forEach((it) => { it.y = Math.max(min, Math.min(max, it.y)) })
 }
 
 /**

@@ -232,7 +232,7 @@ plots:
   traces_title: "{world} - {moment}"
   # {world} {target} {change}
   traces_running: "{world} - {holding} running {change}"
-  traces_legend: "quote in G, own scale per holding"
+  traces_legend: "quote in G, log scale"
 
 # The places a player may be offered. Add, cut and rename freely.
 # Tickers for the holdings inside a world. Each world draws as many as it

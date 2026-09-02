@@ -14,6 +14,7 @@ loadCopy({ quiet: true })
 const game = await import('./game.mjs')
 const store = await import('./sessions.mjs')
 const { realMs, GAME_DAY_SECONDS } = await import('./time.mjs')
+const { renderEmission } = await import('./render.mjs')
 
 let failures = 0
 const ok = (name, cond, detail = '') => {
@@ -171,6 +172,26 @@ const ok = (name, cond, detail = '') => {
   await game.handle(S, '1')
   ok('the plots are labelled with them',
      game.sceneInvestment(S).some((e) => e.holdings?.length === S.world.info.n))
+}
+
+// --- the plot -------------------------------------------------------------
+{
+  // Rendering is checked by rendering: a plot that throws is a dead turn, and
+  // the shapes that break it are the small and the degenerate ones.
+  const png = (n, prices) => renderEmission({
+    kind: 'traces', n, holdings: ['AAA', 'BBB', 'CCC', 'DDD', 'EEE', 'FFF', 'GGG'],
+    z: prices, priced: prices, upto: prices.length - 1,
+    totalReadouts: prices.length, target: 0, interventionAt: 1, title: 'test',
+  })
+  const rows = (n, f) => Array.from({ length: 6 }, (_, k) =>
+    Array.from({ length: n }, (_, q) => f(k, q)))
+
+  ok('draws seven holdings', png(7, rows(7, (k, q) => 100 * (q + 1) * (1 + k / 20))).length > 0)
+  ok('draws two', png(2, rows(2, (k, q) => 250 + q * 100 + k)).length > 0)
+  // a world where nothing moves at all: every value identical, so lo === hi
+  ok('draws a world that never moves', png(3, rows(3, () => 500)).length > 0)
+  // and one spanning two decades, where the log axis earns its keep
+  ok('draws across two decades', png(4, rows(4, (k, q) => 50 * Math.pow(4, q) + k)).length > 0)
 }
 
 // --- the sheet --------------------------------------------------------------
