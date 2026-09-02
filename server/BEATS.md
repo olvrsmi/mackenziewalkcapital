@@ -144,7 +144,7 @@ sequences:
 
 | field | |
 |---|---|
-| `art` | a name in `server/art/`. Missing files are skipped, so write before it is drawn. The picture is sent on its own and the line follows as a separate message, so a small portrait is never stretched to text width |
+| `art` | a name in `server/art/` — a still (`png/jpg/webp`) or a moving one (`mp4/gif`, sent as a looping animation; an mp4 of the same name wins over a still). Missing files are skipped, so write before it is drawn. Sent on its own with the line following separately, so a small portrait is never stretched to text width |
 | `speaker` | who is talking; rendered bold above the line |
 | `text` | what they say |
 | `choices` | keyed `a`, `b`, `c`… — **any number**. Each has a `label` and a `reply` |

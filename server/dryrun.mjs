@@ -14,7 +14,7 @@ import './env.mjs'
 import { loadCopy, holding } from './copy.mjs'
 loadCopy({ quiet: true })
 import * as game from './game.mjs'
-import { renderEmission, RENDERABLE, artPath } from './render.mjs'
+import { renderEmission, RENDERABLE, artPath, isAnimation, hasAudio } from './render.mjs'
 import { timeInfo, describeReal } from './time.mjs'
 
 const pngDir = process.argv.includes('--png')
@@ -23,7 +23,7 @@ if (pngDir) mkdirSync(pngDir, { recursive: true })
 
 let shot = 0
 const sent = { text: 0, photo: 0, captions: 0, unknown: 0, art: 0,
-               artMissing: new Set(), bytes: 0 }
+               artMissing: new Set(), artNoisy: new Set(), bytes: 0 }
 
 // the same mapping bot.mjs uses, kept in step by importing nothing from it:
 // buttons are just the tokens a player could type
@@ -60,7 +60,12 @@ function show (emissions, S) {
       const file = artPath(e.art)
       sent.art++
       if (!file) sent.artMissing.add(e.art)
-      console.log(`  [art   ] ${e.art}${file ? '' : '  (no file yet)'}`)
+      const moving = file && isAnimation(file)
+      const noisy = moving && hasAudio(file)
+      if (noisy) sent.artNoisy.add(e.art)
+      const tag = moving ? '[anim  ]' : '[art   ]'
+      console.log(`  ${tag} ${e.art}${file ? '' : '  (no file yet)'}` +
+                  `${noisy ? '  (has audio)' : ''}`)
       // shown as the two messages it now is, not as one with a caption
       if (e.caption) {
         sent.text++
@@ -139,5 +144,12 @@ console.log(`  balance ${Math.round(S.balance)}G · coherence ${S.coherence.toFi
             `· expect '${S.expect}'`)
 if (sent.artMissing.size) {
   console.log(`  art not drawn yet: ${[...sent.artMissing].sort().join(', ')}`)
+}
+if (sent.artNoisy.size) {
+  // sendAnimation wants H.264 without sound. With an audio track Telegram
+  // sends a video instead: a play button and a tap, not a quiet loop.
+  console.log(`  these have an audio track, so Telegram will send them as VIDEO,`)
+  console.log(`  not as a looping animation: ${[...sent.artNoisy].sort().join(', ')}`)
+  console.log(`  strip it on export, or:  ffmpeg -i in.mp4 -an -c:v copy out.mp4`)
 }
 if (pngDir) console.log(`  images written to ${pngDir}`)

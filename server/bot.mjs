@@ -20,7 +20,7 @@ import { Bot, InlineKeyboard, InputFile, GrammyError, HttpError } from 'grammy'
 import * as game from './game.mjs'
 import { t, loadCopy, watchCopy, copyInfo, holding, moment } from './copy.mjs'
 import * as store from './sessions.mjs'
-import { renderEmission, RENDERABLE, artPath } from './render.mjs'
+import { renderEmission, RENDERABLE, artPath, isAnimation } from './render.mjs'
 import { modelInfo } from './model.mjs'
 import { timeInfo, describeReal } from './time.mjs'
 import { logEvent, logFile } from './log.mjs'
@@ -211,13 +211,18 @@ async function deliver (chatId, emissions, S, { keyboard = true } = {}) {
         }
         logEvent('art_missing', { chat: chatId, art: e.art })
       } else {
-        await bot.api.sendChatAction(chatId, 'upload_photo').catch(() => {})
-        // The picture goes on its own and the line follows as its own message.
-        // A caption makes Telegram fit the photo to the text's width, which
-        // stretches a small portrait or pads it with a blurred background - so
-        // scene art is never captioned. The keyboard rides the last message
-        // either way, which is the line when there is one.
-        await sendWithRetry(() => bot.api.sendPhoto(chatId, new InputFile(file),
+        // An mp4 or a gif has to go through sendAnimation - sent as a photo an
+        // mp4 is refused outright and a gif arrives as a single still frame.
+        const moving = isAnimation(file)
+        await bot.api.sendChatAction(chatId, moving ? 'upload_video' : 'upload_photo')
+          .catch(() => {})
+        // The media goes on its own and the line follows as its own message. A
+        // caption makes Telegram fit it to the text's width, which stretches a
+        // small portrait or pads it with a blurred background - so scene art is
+        // never captioned. The keyboard rides the last of the pair.
+        const send = moving ? bot.api.sendAnimation.bind(bot.api)
+                            : bot.api.sendPhoto.bind(bot.api)
+        await sendWithRetry(() => send(chatId, new InputFile(file),
           cap ? {} : { reply_markup }), chatId)
         if (cap) {
           await sendWithRetry(() => bot.api.sendMessage(chatId, cap,

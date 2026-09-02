@@ -4,7 +4,7 @@
 // restored from disk, the day boundary, and the arithmetic the budget rests on.
 
 import './env.mjs'
-import { rm, readFile } from 'node:fs/promises'
+import { rm, readFile, writeFile } from 'node:fs/promises'
 import { loadCopy } from './copy.mjs'
 
 const SCRATCH = new URL('./.selftest-state/', import.meta.url).pathname
@@ -14,7 +14,7 @@ loadCopy({ quiet: true })
 const game = await import('./game.mjs')
 const store = await import('./sessions.mjs')
 const { realMs, GAME_DAY_SECONDS } = await import('./time.mjs')
-const { renderEmission } = await import('./render.mjs')
+const { renderEmission, artPath, isAnimation, hasAudio } = await import('./render.mjs')
 
 /**
  * A session sitting at the world offer, past the opening scene.
@@ -332,6 +332,34 @@ const ok = (name, cond, detail = '') => {
   const upTo = artSend.slice(0, artSend.indexOf('RENDERABLE.has'))
   ok('a picture is sent without a caption, and its line follows separately',
      !/caption: cap/.test(upTo) && /sendMessage\(chatId, cap/.test(upTo))
+  ok('a moving picture goes through sendAnimation, not sendPhoto',
+     /sendAnimation/.test(upTo) && /isAnimation\(file\)/.test(upTo))
+
+  // artPath and isAnimation, against real files on disk
+  ok('an mp4 or a gif is recognised as moving',
+     ['a.mp4', 'b.gif', 'C.MP4'].every(isAnimation) &&
+     !['a.png', 'b.webp', 'c', ''].some(isAnimation))
+
+  const probe = new URL('./art/_selftest_probe.mp4', import.meta.url)
+  const still = new URL('./art/_selftest_probe.png', import.meta.url)
+  await writeFile(still, 'not really a png')
+  ok('a still is found', /_selftest_probe\.png$/.test(artPath('_selftest_probe') || ''))
+  await writeFile(probe, 'not really an mp4')
+  ok('and a moving version of the same name takes precedence',
+     /_selftest_probe\.mp4$/.test(artPath('_selftest_probe') || ''),
+     'dropping in an mp4 should upgrade a scene without deleting the still')
+  await rm(probe, { force: true })
+  await rm(still, { force: true })
+  ok('a name with no file is still null', artPath('_selftest_probe') === null)
+
+  // Cross-checked against ffprobe while writing it, which is how I found the
+  // offset wrong: the handler type sits 12 bytes into an hdlr box, not 8.
+  ok('a still is never reported as noisy', !hasAudio(artPath('lift_closed')))
+  ok('an mp4 with an audio track is caught',
+     !artPath('himbo')?.endsWith('.mp4') || hasAudio(artPath('himbo')),
+     'sendAnimation wants no sound; with audio Telegram sends a video')
+  ok('and a name that tries to escape the directory is refused',
+     artPath('../../package') === null)
   ok('art travels as its own emission',
      opening.emissions.some((e) => e.kind === 'art'))
   ok('and is paced, so a burst does not arrive all at once',

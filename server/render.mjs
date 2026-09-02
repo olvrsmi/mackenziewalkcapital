@@ -14,7 +14,7 @@
 // (U+27E8/27E9) or box-drawing glyphs, and renders them as tofu.
 
 import { createCanvas, GlobalFonts } from '@napi-rs/canvas'
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -306,11 +306,50 @@ export const RENDERABLE = new Set(['traces'])
  */
 export function artPath (name) {
   if (!name || !/^[\w-]+$/.test(name)) return null
-  for (const ext of ['png', 'jpg', 'jpeg', 'webp']) {
+  // Moving pictures are looked for FIRST, so dropping a himbo.mp4 beside an
+  // existing himbo.png upgrades that scene without deleting anything.
+  for (const ext of ['mp4', 'gif', 'png', 'jpg', 'jpeg', 'webp']) {
     const file = join(ART, `${name}.${ext}`)
     if (existsSync(file)) return file
   }
   return null
+}
+
+/**
+ * Whether a file wants sendAnimation rather than sendPhoto.
+ *
+ * Telegram treats both as animations - a gif, or a soundless mp4 - and plays
+ * them muted and looping, which is what a scene beat wants. Sent as a photo
+ * instead, an mp4 is rejected and a gif arrives as a still.
+ */
+export const isAnimation = (file) => /\.(mp4|gif)$/i.test(file || '')
+
+/**
+ * Whether an mp4 carries an audio track.
+ *
+ * sendAnimation wants H.264 WITHOUT sound: given an audio track Telegram sends
+ * a video instead - a play button and a tap to start, rather than a thing that
+ * loops quietly behind a line of dialogue. There is no way to tell from the
+ * chat which one you got until you look at it, so it is worth saying at export
+ * time.
+ *
+ * Looks for the `soun` handler in an `hdlr` box, which is how a track declares
+ * itself audio. A heuristic, but it does not need ffmpeg on the machine.
+ */
+export function hasAudio (file) {
+  if (!file || !/\.mp4$/i.test(file)) return false
+  try {
+    const buf = readFileSync(file)
+    for (let i = 0; i + 16 <= buf.length; i++) {
+      if (buf[i] === 0x68 && buf[i + 1] === 0x64 &&
+          buf[i + 2] === 0x6c && buf[i + 3] === 0x72) {        // 'hdlr'
+        // 'hdlr' + 4 version/flags + 4 pre_defined, then the handler type
+        const handler = buf.subarray(i + 12, i + 16).toString('latin1')
+        if (handler === 'soun') return true
+      }
+    }
+  } catch { /* unreadable is not the same as noisy */ }
+  return false
 }
 
 export function renderEmission (e) {
