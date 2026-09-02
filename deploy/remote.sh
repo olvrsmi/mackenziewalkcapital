@@ -46,19 +46,39 @@ as_service_user () {
 
 [ -d "$APP/.git" ] || die "no clone at $APP. Run setup.sh on this box first."
 
+# Git, with the box's own configuration out of the way. A credential helper, a
+# stored ~/.git-credentials, or an insteadOf rule that rewrites github.com urls
+# to carry a token all make git present a credential this repository does not
+# need - and GitHub answers a rejected credential with 401 even for a public
+# repository. The remote url alone does not fix that. Ignoring global and system
+# config does; the repository's own config is all that is left, and we set it.
+clean_git () {
+  GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
+  GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=/bin/true \
+    git -c credential.helper= -c http.extraheader= "$@"
+}
+# What would have made git authenticate, with any secret masked.
+git_auth_sources () {
+  { git config --show-origin --get-regexp '^(url\..*\.insteadof|credential\.|http\.extraheader)' 2>/dev/null
+    [ -f ~/.git-credentials ] && echo "file:~/.git-credentials  (exists)"
+  } | sed -E 's#(https?://)[^@/[:space:]]+@#\1***@#g' | sed 's/^/         /'
+}
+
 # --- code -------------------------------------------------------------------
 if [ -n "$REF" ]; then
   say "Code"
-  # Pinned every time. A clone made when the repository was private, or with a
-  # url carrying a credential since rotated, otherwise keeps trying to
-  # authenticate for a repository that needs none - and reports it as "could not
-  # read Username", which names neither cause. No terminal here to answer a
-  # prompt, so make git fail instead of waiting for one.
-  export GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=/bin/true
-  git -C "$APP" remote set-url origin "$REPO"
-  git -C "$APP" fetch --quiet --tags origin
-  git -C "$APP" reset --quiet --hard "$REF" 2>/dev/null \
-    || git -C "$APP" reset --quiet --hard "origin/$REF"
+  clean_git -C "$APP" remote set-url origin "$REPO"
+  clean_git -C "$APP" config --local --unset-all http.extraheader 2>/dev/null || true
+  if ! err=$(clean_git -C "$APP" fetch --quiet --tags origin 2>&1); then
+    die "could not fetch $REPO
+         git said: ${err:-nothing}
+       The repository is public, so a 401 means this box presented a credential
+       GitHub rejected. Where it might come from:
+$(git_auth_sources)
+       Remove it, or rotate it, and deploy again."
+  fi
+  clean_git -C "$APP" reset --quiet --hard "$REF" 2>/dev/null \
+    || clean_git -C "$APP" reset --quiet --hard "origin/$REF"
   note "$(git -C "$APP" log --oneline -1)"
 fi
 

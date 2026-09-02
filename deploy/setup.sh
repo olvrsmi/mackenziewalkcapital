@@ -93,26 +93,49 @@ else
   note "no engine yet - deploy.sh sends it"
 fi
 
+# Git, with the box's own configuration out of the way. A credential helper, a
+# stored ~/.git-credentials, or an insteadOf rule that rewrites github.com urls
+# to carry a token all make git present a credential this repository does not
+# need - and GitHub answers a rejected credential with 401 even for a public
+# repository. The remote url alone does not fix that. Ignoring global and system
+# config does; the repository's own config is all that is left, and we set it.
+clean_git () {
+  GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
+  GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=/bin/true \
+    git -c credential.helper= -c http.extraheader= "$@"
+}
+# What would have made git authenticate, with any secret masked.
+git_auth_sources () {
+  { git config --show-origin --get-regexp '^(url\..*\.insteadof|credential\.|http\.extraheader)' 2>/dev/null
+    [ -f ~/.git-credentials ] && echo "file:~/.git-credentials  (exists)"
+  } | sed -E 's#(https?://)[^@/[:space:]]+@#\1***@#g' | sed 's/^/         /'
+}
+
 say "Code"
 # The clone stays owned by root and the game runs as an unprivileged user, so
 # the process cannot rewrite the code it is running. Data lives outside the
 # working tree entirely, which also keeps `git reset --hard` from ever being
 # near a saved game.
-# No terminal to answer a credential prompt, so make git say that plainly
-export GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=/bin/true
 if [ -d "$APP/.git" ]; then
-  git -C "$APP" remote set-url origin "$REPO"
-  git -C "$APP" fetch --quiet origin "$BRANCH" \
-    || die "could not fetch $REPO - $(git -C "$APP" fetch origin "$BRANCH" 2>&1 | tail -1)"
-  git -C "$APP" reset --quiet --hard "origin/$BRANCH"
+  clean_git -C "$APP" remote set-url origin "$REPO"
+  if ! err=$(clean_git -C "$APP" fetch --quiet origin "$BRANCH" 2>&1); then
+    die "could not fetch $REPO
+         git said: ${err:-nothing}
+       The repository is public, so a 401 means this box presented a credential
+       GitHub rejected. Where it might come from:
+$(git_auth_sources)"
+  fi
+  clean_git -C "$APP" reset --quiet --hard "origin/$BRANCH"
   note "updated to $(git -C "$APP" log --oneline -1)"
 else
   mkdir -p "$ROOT"
-  if ! err=$(git clone --quiet --branch "$BRANCH" "$REPO" "$APP" 2>&1); then
+  if ! err=$(clean_git clone --quiet --branch "$BRANCH" "$REPO" "$APP" 2>&1); then
     die "could not clone $REPO
          git said: ${err:-nothing}
-       If that mentions a username or authentication, the repository is not
-       public. If it mentions resolving or connecting, it is the network."
+       If that mentions a username, authentication or 401, this box is
+       presenting a credential GitHub rejected. Where it might come from:
+$(git_auth_sources)
+       If it mentions resolving or connecting, it is the network."
   fi
   note "cloned $(git -C "$APP" log --oneline -1)"
 fi
