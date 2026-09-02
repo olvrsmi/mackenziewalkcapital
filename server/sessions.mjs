@@ -79,6 +79,11 @@ function migrate (S) {
     const held = (S.worlds || []).find((w) => w.name === S.world?.name)
     if (S.world && !S.world.holdings) S.world.holdings = held?.holdings
     if (S.run && !S.run.holdings) S.run.holdings = S.world?.holdings
+    // a position open across the pricing change has no pinned listing
+    // price; recover it from the world rather than quoting NaN
+    if (S.run && S.run.base === undefined && S.world?.info) {
+      S.run.base = game.basePrice(S.world.info, S.run.target)
+    }
   }
 
   if (!S.run) return

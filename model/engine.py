@@ -263,6 +263,20 @@ def info_of(spec):
         # it actually asks of the world, and the only structural number here
         # that varies much between worlds
         'constraints': sum(len(t.get('expvals') or {}) for t in targets),
+        # The same count, but per holding: how many Pauli correlations name this
+        # qubit. It is a holding's book of business - every expval is a contract
+        # the specification holds it to, every step, forever - and it is what the
+        # server prices from. Structural, so it costs nothing: no circuit is run
+        # and no cache entry is involved.
+        'book': [
+            sum(1
+                for t in targets if q in t['qubits']
+                for word in (t.get('expvals') or {})
+                # 'I' in a Pauli word means the operator does not act on that
+                # qubit at all, so an expval keyed 'XI' is a contract on the
+                # first holding and nothing whatever on the second
+                if word[t['qubits'].index(q)] != 'I')
+            for q in range(n)],
         'components': components(n, pairs),
         'fraction': spec.get('fraction'),
         'readouts': STEPS,

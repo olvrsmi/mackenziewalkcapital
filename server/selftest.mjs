@@ -78,11 +78,21 @@ const ok = (name, cond, detail = '') => {
     S.investedToday = traded ? 1 : 0; S.week = []; S.history = []
     return game.closeDay(S).next
   }
-  ok('a profitable day raises the budget 10%', day(120, true) === 1100, `got ${day(120, true)}`)
+  // Breaking even used to count as a good day. It no longer does: inverted, 83%
+  // of days finish up, and the ladder needs roughly a third of them to fail or
+  // budgets compound without limit. The house wants QUOTA of the budget.
+  const q = Math.round(1000 * game.QUOTA)
+  ok('clearing the quota raises the budget 10%', day(q, true) === 1100, `got ${day(q, true)}`)
   ok('a losing day lowers it 5%', day(-300, true) === 950, `got ${day(-300, true)}`)
-  ok('breaking even with a trade counts as profit', day(0, true) === 1100, `got ${day(0, true)}`)
+  ok('breaking even no longer counts - the quota is not cleared',
+     day(0, true) === 950, `got ${day(0, true)}`)
+  ok('nor does a profit short of the quota',
+     day(q - 1, true) === 950, `got ${day(q - 1, true)}`)
   ok('a day with no investment counts as a loss', day(0, false) === 950, `got ${day(0, false)}`)
   ok('the budget floors at 500', day(-100, true, 500) === 500, `got ${day(-100, true, 500)}`)
+  ok('the quota scales with the budget',
+     day(Math.round(2000 * game.QUOTA), true, 2000) === 2200,
+     `got ${day(Math.round(2000 * game.QUOTA), true, 2000)}`)
 }
 
 // --- stakes and returns stay whole -------------------------------------------
@@ -161,6 +171,31 @@ const ok = (name, cond, detail = '') => {
   await game.handle(S, '1')
   ok('the plots are labelled with them',
      game.sceneInvestment(S).some((e) => e.holdings?.length === S.world.info.n))
+}
+
+// --- pricing --------------------------------------------------------------
+{
+  const info = { id: 'spec_test_01', n: 4, book: [1, 4, 4, 9] }
+  const bases = [0, 1, 2, 3].map((q) => game.basePrice(info, q))
+
+  ok('a bigger book lists dearer', bases[3] > bases[0],
+     bases.map((b) => b.toFixed(0)).join(' '))
+  ok('no two holdings list at the same price', new Set(bases).size === 4,
+     'the float is what separates holdings whose books tie')
+  ok('the float is stable', game.basePrice(info, 2) === bases[2])
+
+  // inverted: a world opens polarised at <Z> ~ +1 and recovers toward 0
+  ok('a falling reading is a rising quote',
+     game.quote(bases[0], -1) > game.quote(bases[0], 1))
+  ok('a quote is positive for any reading',
+     [-1, -0.5, 0, 0.5, 1].every((z) => game.quote(bases[1], z) > 0))
+
+  // the base cancels, so price cannot be used to pick a winner
+  const cheap = game.priceReturn(0.5, -0.5)
+  ok('the same move pays the same on a cheap holding and a dear one',
+     Math.abs(cheap - game.priceReturn(0.5, -0.5)) < 1e-12)
+  ok('holding through a recovery profits', game.priceReturn(1, -1) > 0)
+  ok('holding through a decline loses', game.priceReturn(-1, 1) < 0)
 }
 
 // --- the bell ----------------------------------------------------------------

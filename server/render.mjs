@@ -56,7 +56,7 @@ function frame (height, title, draw) {
  * <Z> for every circuit qubit across the readouts seen so far.
  * `target` and `interventionAt` are null before an investment is placed.
  */
-export function renderTraces ({ n, z, upto, totalReadouts, target = null,
+export function renderTraces ({ n, z, priced, upto, totalReadouts, target = null,
                                 interventionAt = null, holdings, title }) {
   const H = 48 + n * 26 + 30
   return frame(H, title, (ctx, W) => {
@@ -95,7 +95,16 @@ export function renderTraces ({ n, z, upto, totalReadouts, target = null,
       ctx.textAlign = 'right'
       ctx.fillText(holding(q, holdings), padL - 10, yMid + 4)
 
-      const series = z.map((row) => row[q])
+      // Each holding is drawn against its OWN range, because quotes differ by an
+      // order of magnitude across a world and a shared linear axis flattens the
+      // cheap ones to a straight line. A shared log axis is the better answer
+      // and belongs with the square-plot work; this keeps every holding legible
+      // until then.
+      const raw = (priced || z).map((row) => row[q])
+      const lo = Math.min(...raw), hi = Math.max(...raw)
+      const mid = (lo + hi) / 2
+      const half = Math.max((hi - lo) / 2, Math.abs(mid) * 1e-6, 1e-9)
+      const series = raw.map((v) => (v - mid) / half)
       ctx.strokeStyle = qcol(q)
       ctx.lineWidth = isTarget ? 2.6 : 1.6
       ctx.beginPath()
@@ -111,11 +120,13 @@ export function renderTraces ({ n, z, upto, totalReadouts, target = null,
         ctx.fill()
       })
 
-      const now = series[series.length - 1]
+      // the number beside the line is the quote itself, not a normalised one
+      const now = raw[raw.length - 1]
       ctx.fillStyle = isTarget ? WARM : INK
       ctx.textAlign = 'left'
       ctx.font = `${isTarget ? 'bold ' : ''}12px ${MONO}`
-      ctx.fillText(`${now >= 0 ? '+' : ''}${now.toFixed(3)}`,
+      ctx.fillText(priced ? Math.round(now).toLocaleString('en-GB')
+                          : `${now >= 0 ? '+' : ''}${now.toFixed(3)}`,
                    padL + plotW + 10, yMid + 4)
     }
 
@@ -222,7 +233,8 @@ export function renderEmission (e) {
   switch (e.kind) {
     case 'traces':
       return renderTraces({
-        n: e.n, z: e.z, upto: e.upto, totalReadouts: e.totalReadouts,
+        n: e.n, z: e.z, priced: e.priced, upto: e.upto,
+        totalReadouts: e.totalReadouts,
         target: e.target, interventionAt: e.interventionAt,
         holdings: e.holdings, title: e.title,
       })

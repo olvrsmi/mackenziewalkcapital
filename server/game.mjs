@@ -42,6 +42,9 @@ export const START_BUDGET = Number(process.env.MW_START_BUDGET || 1000)
 export const BUDGET_FLOOR = Number(process.env.MW_BUDGET_FLOOR || 500)
 export const BUDGET_UP = 1.10          // after a profitable day
 export const BUDGET_DOWN = 0.95        // after a loss, or a day spent idle
+// What the house requires of a day before it counts as a good one, as a
+// fraction of that day's budget.
+export const QUOTA = Number(process.env.MW_QUOTA || 0.10)
 export const WEEK_DAYS = 7
 export const WEEK_BONUS = Number(process.env.MW_WEEK_BONUS || 100)
 export const UPGRADE_COST = Number(process.env.MW_UPGRADE_COST || 10)
@@ -177,8 +180,13 @@ export const dayIsOver = (S, nowMs = Date.now()) => dayRemaining(S, nowMs) <= 0
  */
 export function closeDay (S) {
   const pl = S.balance - S.budget
+  // The house does not congratulate you for breaking even. A day counts only if
+  // it clears QUOTA of the budget it was given - which is also what stops the
+  // ladder running away: inverted, 83% of days finish up, and +10%/-5% needs
+  // roughly 35% of days to fail or budgets compound without limit.
+  const quota = Math.round(S.budget * QUOTA)
   const traded = S.investedToday > 0
-  const good = traded && pl >= 0
+  const good = traded && pl >= quota
 
   const next = Math.max(BUDGET_FLOOR,
     Math.round(S.budget * (good ? BUDGET_UP : BUDGET_DOWN)))
@@ -256,6 +264,11 @@ function tracesPanel (S, upto, opts = {}) {
     holdings: S.world.holdings,
     cuts: S.clean.cuts,
     z: (opts.z || S.clean.z).slice(0, upto + 1),
+    // What is drawn is the quote, not the reading. Inverted, a falling <Z>
+    // is a rising price, so plotting the reading would send every line the
+    // opposite way to the number printed beside it.
+    priced: (opts.z || S.clean.z).slice(0, upto + 1).map(
+      (row) => row.map((z, q) => quote(basePrice(S.world.info, q), z))),
     upto,
     totalReadouts: S.world.readouts,
     target: opts.target ?? null,
@@ -418,6 +431,61 @@ export async function boot (S) {
       ...offerWorlds(S, rnd),
     ],
   }
+}
+
+// ---------------------------------------------------------------------------
+// Price
+//
+// A holding is a listed company. What it is WORTH comes from its book of
+// business - how many Pauli correlations in the specification name it, which is
+// how many contracts it is held to, every step, forever. What it TRADES at is
+// that worth divided by however many shares happened to be issued when it
+// listed, which is a historical accident and carries no information at all.
+//
+// Both halves earn their place. The book alone leaves twelve of the forty-six
+// worlds pricing every holding identically - the small symmetric specifications
+// treat their qubits the same way, so no characteristic can tell them apart -
+// and the float is what separates them. It also does the job a real share price
+// does: a price you cannot read a company's size off.
+//
+// The quote moves as exp(-SIGMA * <Z>). Inverted, because a world starts
+// polarised at <Z> ~ +1 and decoheres toward zero, so -<Z> is the direction that
+// rises: a distressed book recovering. Multiplicative, so a quote is positive
+// for every possible reading and needs no clamp, floor or special case.
+// ---------------------------------------------------------------------------
+
+export const PRICE_SIGMA = Number(process.env.MW_PRICE_SIGMA || 0.5)
+const PRICE_UNIT = Number(process.env.MW_PRICE_UNIT || 90)
+const FLOAT_SPREAD = 1.7        // widest the issued float pulls a quote either way
+
+/** The listing price of holding q: what it trades at when <Z> is zero. */
+export function basePrice (info, q) {
+  const book = (info.book && info.book[q]) || 0
+  // the float: stable for a world forever, drawn from the id so it needs no
+  // storage and survives every restart and migration
+  let h = 0
+  for (const c of `${info.id}:${q}`) h = (Math.imul(h, 31) + c.charCodeAt(0)) | 0
+  const float = Math.exp((mulberry(h)() - 0.5) * 2 * Math.log(FLOAT_SPREAD))
+  return PRICE_UNIT * (1 + book) * float
+}
+
+/** What holding q quotes at, given its reading. */
+export function priceOf (info, q, z) {
+  return quote(basePrice(info, q), z)
+}
+
+/** A quote from an already-known listing price. */
+export function quote (base, z) {
+  return base * Math.exp(-PRICE_SIGMA * z)
+}
+
+/**
+ * The return on a stake held from one reading to another. The base cancels, so
+ * a cheap holding and a dear one pay the same for the same percentage move -
+ * which is why the quote cannot be used to pick a winner.
+ */
+export function priceReturn (zIn, zOut) {
+  return Math.exp(PRICE_SIGMA * (zIn - zOut)) - 1
 }
 
 function mulberry (a) {
@@ -587,7 +655,11 @@ export async function handle (S, raw, emit = null) {
                 revealed: S.readoutIndex, reported: S.readoutIndex,
                 // the run keeps its own copy: settle names the holding after
                 // the round has ended and S.world has moved on
-                holdings: S.world.holdings, startedMs: Date.now() }
+                holdings: S.world.holdings,
+                // pinned, so the settle quotes what the open quoted even if the
+                // world's structural data changes under a deploy mid-position
+                base: basePrice(S.world.info, q),
+                startedMs: Date.now() }
       S.expect = 'running'
       return {
         emissions: [...(preSent ? [] : pre),
@@ -655,7 +727,7 @@ function stepPanel (S) {
     z: r.z, target: r.target, interventionAt: r.investAt,
     title: t('plots.traces_running', {
       world: S.world.name, target: r.target, holding: holding(r.target, r.holdings),
-      change: pct((r.z[k][r.target] - z0) / 2),
+      change: pct(priceReturn(z0, r.z[k][r.target])),
     }),
   })
 }
@@ -739,12 +811,16 @@ export function step (S, now = Date.now()) {
   for (let k = from; k <= due; k++) {
     const z = r.z[k][r.target]
     const prev = r.z[k - 1][r.target]
-    const arrow = z > prev + 1e-6 ? '↗' : (z < prev - 1e-6 ? '↘' : '→')
-    const mult = (z - z0) / 2
+    // inverted: a falling reading is a rising quote, so the arrow follows the
+    // price the player watches, not the physics underneath it
+    const arrow = z < prev - 1e-6 ? '↗' : (z > prev + 1e-6 ? '↘' : '→')
+    const mult = priceReturn(z0, z)
     rows.push(t('scenes.readout', {
       world: S.world.name, target: r.target, holding: holding(r.target, r.holdings),
       moment: moment(k),
-      value: fmt(z), value_raw: z,
+      value: money(quote(r.base, z)),
+      value_raw: quote(r.base, z),
+      reading: fmt(z), reading_raw: z,
       change: pct(mult), change_raw: mult, arrow,
       pl: `${Math.round(r.stake * mult) > 0 ? '+' : ''}${money(r.stake * mult)}`,
       pl_raw: r.stake * mult,
@@ -766,7 +842,11 @@ function settle (S, { closeRound = true } = {}) {
   const z0 = r.z[r.investAt][r.target]
   const z1 = r.z[r.exitAt][r.target]
   const dz = z1 - z0
-  const mult = dz / 2
+  // The quote moved, and the settle pays what the quote did - anything else and
+  // the screen is lying about the only number it asks the player to read. The
+  // base cancels in the ratio, so a cheap holding and a dear one pay the same
+  // for the same percentage move.
+  const mult = priceReturn(z0, z1)
   // the stake was taken when the coupling was made; it comes back scaled by
   // (1 + multiplier), so a worst call loses it all and a best call doubles it
   // rounded to whole G: the day's P/L is balance - budget, and a float here
@@ -782,7 +862,9 @@ function settle (S, { closeRound = true } = {}) {
 
   const out = [{ kind: 'text', text: t('scenes.returns', {
     target: r.target, holding: holding(r.target, r.holdings),
-    opened_at: z0.toFixed(4), closed_at: z1.toFixed(4),
+    opened_at: money(quote(r.base, z0)),
+    closed_at: money(quote(r.base, z1)),
+    opened_reading: z0.toFixed(4), closed_reading: z1.toFixed(4),
     exit: moment(r.exitAt),
     change: `${dz >= 0 ? '+' : ''}${dz.toFixed(4)}`, change_raw: dz,
     multiplier: `${mult >= 0 ? '+' : ''}${mult.toFixed(4)}`, multiplier_raw: mult,

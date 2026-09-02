@@ -215,7 +215,7 @@ plots:
   # {world} {target} {change}
   traces_running: "{world} - {holding} running {change}"
   gatemap_legend: "[] 1-qubit  o-o 2-qubit  : readouts"
-  traces_legend: "<value> -1 to +1 per row"
+  traces_legend: "quote in G, own scale per holding"
 
 # The places a player may be offered. Add, cut and rename freely.
 # Tickers for the holdings inside a world. Each world draws as many as it
