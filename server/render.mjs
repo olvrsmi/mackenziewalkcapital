@@ -202,3 +202,36 @@ export function renderGatemap ({ n, layers, cuts, nLayers, holdings, title }) {
                  padL + plotW, y(n - 1) + 22)
   })
 }
+
+/**
+ * The one place an emission becomes a picture.
+ *
+ * Two callers draw plots - the bot and the dry run - and each used to spell out
+ * the same argument lists. A field added to a plot had to be added in both, and
+ * a plot changed in one drifted silently from the other. Worse, the dry run's
+ * dispatch was an if/else on 'traces': anything that was not a traces emission
+ * was handed to renderGatemap, so an unrecognised kind came out as the wrong
+ * picture rather than as an error.
+ *
+ * RENDERABLE lets a caller ask "is this mine to draw?" without repeating the
+ * list, so an emission kind nobody draws is loud instead of lost.
+ */
+export const RENDERABLE = new Set(['traces', 'gatemap'])
+
+export function renderEmission (e) {
+  switch (e.kind) {
+    case 'traces':
+      return renderTraces({
+        n: e.n, z: e.z, upto: e.upto, totalReadouts: e.totalReadouts,
+        target: e.target, interventionAt: e.interventionAt,
+        holdings: e.holdings, title: e.title,
+      })
+    case 'gatemap':
+      return renderGatemap({
+        n: e.n, layers: e.layers, cuts: e.cuts, nLayers: e.nLayers,
+        holdings: e.holdings, title: e.title,
+      })
+    default:
+      throw new Error(`renderEmission: nothing draws a '${e.kind}' emission`)
+  }
+}

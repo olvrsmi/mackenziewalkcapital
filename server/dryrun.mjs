@@ -14,7 +14,7 @@ import './env.mjs'
 import { loadCopy, holding } from './copy.mjs'
 loadCopy({ quiet: true })
 import * as game from './game.mjs'
-import { renderTraces, renderGatemap } from './render.mjs'
+import { renderEmission, RENDERABLE } from './render.mjs'
 import { timeInfo, describeReal } from './time.mjs'
 
 const pngDir = process.argv.includes('--png')
@@ -22,7 +22,7 @@ const pngDir = process.argv.includes('--png')
 if (pngDir) mkdirSync(pngDir, { recursive: true })
 
 let shot = 0
-const sent = { text: 0, photo: 0, captions: 0, bytes: 0 }
+const sent = { text: 0, photo: 0, captions: 0, unknown: 0, bytes: 0 }
 
 // the same mapping bot.mjs uses, kept in step by importing nothing from it:
 // buttons are just the tokens a player could type
@@ -48,14 +48,8 @@ function show (emissions, S) {
       sent.text++
       const first = e.text.split('\n')[0].replace(/\*\*/g, '')
       console.log(`  [text ] ${first.slice(0, 88)}`)
-    } else {
-      const png = e.kind === 'traces'
-        ? renderTraces({ n: e.n, z: e.z, upto: e.upto,
-            totalReadouts: e.totalReadouts, target: e.target,
-            interventionAt: e.interventionAt, holdings: e.holdings,
-            title: e.title })
-        : renderGatemap({ n: e.n, layers: e.layers, cuts: e.cuts,
-            nLayers: e.nLayers, holdings: e.holdings, title: e.title })
+    } else if (RENDERABLE.has(e.kind)) {
+      const png = renderEmission(e)
       sent.photo++; sent.bytes += png.length
       if (pngDir) writeFileSync(join(pngDir, `${String(++shot).padStart(2, '0')}-${e.kind}.png`), png)
       console.log(`  [photo] ${e.kind.padEnd(8)} ${(png.length / 1024 | 0)}KB  ${e.title}`)
@@ -65,6 +59,11 @@ function show (emissions, S) {
           console.log(`  [caption] ${line.replace(/\*\*/g, '')}`)
         }
       }
+    } else {
+      // The dry run exists to show what a player would get. An emission it
+      // cannot draw is exactly the thing worth seeing, not skipping.
+      sent.unknown++
+      console.log(`  [?????] nothing draws a '${e.kind}' emission`)
     }
   }
   const b = buttonsFor(S)

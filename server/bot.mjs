@@ -20,7 +20,7 @@ import { Bot, InlineKeyboard, InputFile, GrammyError, HttpError } from 'grammy'
 import * as game from './game.mjs'
 import { t, loadCopy, watchCopy, copyInfo, holding, moment } from './copy.mjs'
 import * as store from './sessions.mjs'
-import { renderTraces, renderGatemap } from './render.mjs'
+import { renderEmission, RENDERABLE } from './render.mjs'
 import { modelInfo } from './model.mjs'
 import { timeInfo, describeReal } from './time.mjs'
 import { logEvent, logFile } from './log.mjs'
@@ -175,16 +175,10 @@ async function deliver (chatId, emissions, S, { keyboard = true } = {}) {
     if (e.kind === 'text') {
       await sendWithRetry(() => bot.api.sendMessage(chatId, toHtml(e.text),
         { parse_mode: 'HTML', reply_markup }), chatId)
-    } else if (e.kind === 'traces' || e.kind === 'gatemap') {
+    } else if (RENDERABLE.has(e.kind)) {
       await bot.api.sendChatAction(chatId, 'upload_photo').catch(() => {})
       const t0 = process.hrtime.bigint()
-      const png = e.kind === 'traces'
-        ? renderTraces({ n: e.n, z: e.z, upto: e.upto,
-            totalReadouts: e.totalReadouts, target: e.target,
-            interventionAt: e.interventionAt, holdings: e.holdings,
-            title: e.title })
-        : renderGatemap({ n: e.n, layers: e.layers, cuts: e.cuts,
-            nLayers: e.nLayers, holdings: e.holdings, title: e.title })
+      const png = renderEmission(e)
       logEvent('render', { chat: chatId, kind: e.kind, n: e.n,
                            ms: Math.round(Number(process.hrtime.bigint() - t0) / 1e6),
                            bytes: png.length })
@@ -201,6 +195,12 @@ async function deliver (chatId, emissions, S, { keyboard = true } = {}) {
         new InputFile(png, 'plot.png'),
         { reply_markup, ...(fits ? { caption: cap, parse_mode: 'HTML' } : {}) }),
         chatId)
+    } else {
+      // Not throwing: one unknown emission should not lose the rest of a turn.
+      // But it must not vanish either - that would be a message the player was
+      // meant to get, gone with nothing said anywhere.
+      console.error(`  ${chatId}: no way to deliver a '${e.kind}' emission`)
+      logEvent('undeliverable', { chat: chatId, kind: e.kind })
     }
   }
 }
