@@ -442,8 +442,7 @@ sequences:
             
             Follow me.
         b:
-          label: Take it, calmly
-          art: himbo
+          label: Take it, calmly    
           speaker: Daniel
           reply: |
             Thats you, welcome to MWC. Welcome to the future!
@@ -464,7 +463,7 @@ sequences:
           label: Call the lift
           speaker: Daniel
           reply: |
-            Man, my first day was so exciting
+            You go get 'em, haha!
         b:
           label: Do nothing
           speaker: Daniel
@@ -483,29 +482,29 @@ sequences:
         Catch you on a drinkfood break maybe, have a good one.
 
     - text: |
-        _[The lift creaks into place and the doors open, 12 industrial revolutions down and we still haven't got the one that solves for general maintenance. You step in.]_
+        _The lift creaks into place and the doors open, 12 industrial revolutions down and we still haven't got the one that solves for general maintenance. You step in._
 
       choices:
         a:
           label: "[17]"
           reply: |
-            _[Well remembered, you feel like you're being tested somehow, even now. Doors close and the lift starts to move...]_
+            _Well remembered, you feel like you're being tested somehow, even now. Doors close and the lift starts to move..._
         b:
           label: "[-1]"
           reply: |
-            _[Oops, you catch yourself in time and press 17. The lift closes and carries you up...]_
+            _Oops, you catch yourself in time and press 17. The lift closes and carries you up..._
         c:
           label: "[??]"
           reply: |
-            _[No response. Thankfully. You hit 17 and the lift starts to move...]_
+            _No response. Thankfully. You hit 17 and the lift starts to move..._
 
   
   # Specified later. An empty sequence simply does not play, so this can sit
   # here unfinished without affecting anything.
   tutorial: 
-    - text: _[You step out at floor 17 and fail to orient yourself, only when you pass the lift for the 4th or 5th time do you spot the door to office 178.]_
+    - text: _You step out at floor 17 and fail to orient yourself, only when you pass the lift for the 4th or 5th time do you spot the door to office 178._
 
-    - text: _[You push open the door and see Navinder stood staring out the window, he's the only other person in there]_
+    - text: _You push open the door and see Navinder stood staring out the window, he's the only other person in there_
       choices:
         a:
           label: "Say 'hi'"        
@@ -518,14 +517,14 @@ sequences:
           reply: |
             ...
 
-    - text: _[You sit down at desk B and boot the terminal. You scan your pass when prompted, input the second and third factor authentications from your phone and watch, and put your first three fingers in the scanner]_
+    - text: _You sit down at desk B and boot the terminal. You scan your pass when prompted, input the second and third factor authentications from your phone and watch, and put your first three fingers in the scanner_
 
     - art: oldhead
       speaker: Navinder
       text: |
         Hey newbie. Start off with the founder welcome or I’ll be in trouble.
 
-        _Your desktop spreads in front of you, there's only two icons_
+        _Your desktop spreads across the 6 screens in front of you, there's only two icons_
       choices:
         a:
           label: "hiya.mp4"
