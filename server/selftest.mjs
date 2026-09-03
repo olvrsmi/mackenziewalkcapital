@@ -14,7 +14,8 @@ loadCopy({ quiet: true })
 const game = await import('./game.mjs')
 const store = await import('./sessions.mjs')
 const { realMs, GAME_DAY_SECONDS } = await import('./time.mjs')
-const { renderEmission, artPath, isAnimation, hasAudio } = await import('./render.mjs')
+const { renderEmission, artPath, isAnimation, hasAudio, stickerOf, STICKER_SIDE } =
+  await import('./render.mjs')
 
 /**
  * A session sitting at the world offer, past the opening scene.
@@ -529,6 +530,70 @@ const ok = (name, cond, detail = '') => {
   const line = game.fireBeat(again)
   ok('a repeat attempt still hears something', line.length === 1 && line[0].text)
   ok('and it is not a setpiece', !again.beat)
+}
+
+// --- art travels as stickers -------------------------------------------------
+{
+  // Every still in art/ has to survive the conversion, because the failure is
+  // silent: canvas hands back a valid, correctly sized, completely empty webp
+  // if the decode was not ready. Weight is the only tell, so weight is checked.
+  const { readdirSync } = await import('node:fs')
+  const { loadImage, createCanvas } = await import('@napi-rs/canvas')
+  const stills = readdirSync(new URL('./art/', import.meta.url))
+    .filter((f) => /\.(png|jpe?g|webp)$/i.test(f))
+
+  ok('there is art to send', stills.length > 0)
+
+  for (const f of stills) {
+    const name = f.replace(/\.[^.]+$/, '')
+    const webp = await stickerOf(artPath(name))
+    const img = await loadImage(webp)
+    const long = Math.max(img.width, img.height)
+    const short = Math.min(img.width, img.height)
+
+    // Telegram's rule: one side exactly 512, the other 512 or less.
+    ok(`${name} is a sticker Telegram will take`,
+       long === STICKER_SIDE && short <= STICKER_SIDE,
+       `${img.width}x${img.height}`)
+    ok(`${name} is a webp`, webp.slice(8, 12).toString('ascii') === 'WEBP')
+
+    // and it has to still be the same picture. Compared against the source
+    // rather than against a number: how much of a drawing is inked and how
+    // much is see-through is the artist's business - lift_closed is a full
+    // frame with no cut-out at all, tower.png is blank - so what is asserted
+    // is that converting does not change it.
+    const share = async (f) => {
+      const i = await loadImage(f)
+      const c = createCanvas(i.width, i.height)
+      const ctx = c.getContext('2d')
+      ctx.drawImage(i, 0, 0)
+      const px = ctx.getImageData(0, 0, i.width, i.height).data
+      let ink = 0, clear = 0
+      for (let j = 3; j < px.length; j += 4) {
+        if (px[j] > 5) ink += 1
+        if (px[j] < 250) clear += 1
+      }
+      const n = i.width * i.height
+      return { ink: (100 * ink) / n, clear: (100 * clear) / n }
+    }
+    const got = await share(webp)
+    const want = await share(artPath(name))
+    // Five points of slack for the resample: a soft edge moves a little when
+    // 1024 pixels become 512.
+    ok(`${name} keeps its picture through the conversion`,
+       Math.abs(got.ink - want.ink) < 5,
+       `${want.ink.toFixed(0)}% inked before, ${got.ink.toFixed(0)}% after, ` +
+       `${(webp.length / 1024).toFixed(1)}KB`)
+    ok(`${name} keeps its transparency through the conversion`,
+       Math.abs(got.clear - want.clear) < 5,
+       `${want.clear.toFixed(0)}% non-opaque before, ${got.clear.toFixed(0)}% after`)
+  }
+
+  // the cache must not hand back a stale picture, nor rebuild every send
+  const one = artPath(stills[0].replace(/\.[^.]+$/, ''))
+  const a = await stickerOf(one)
+  const b = await stickerOf(one)
+  ok('a second send reuses the conversion', a === b)
 }
 
 // --- the clock keeps running -------------------------------------------------

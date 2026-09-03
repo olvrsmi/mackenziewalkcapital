@@ -14,7 +14,8 @@ import './env.mjs'
 import { loadCopy, holding } from './copy.mjs'
 loadCopy({ quiet: true })
 import * as game from './game.mjs'
-import { renderEmission, RENDERABLE, artPath, isAnimation, hasAudio } from './render.mjs'
+import { renderEmission, RENDERABLE, artPath, isAnimation, hasAudio, stickerOf }
+  from './render.mjs'
 import { timeInfo, describeReal } from './time.mjs'
 
 const pngDir = process.argv.includes('--png')
@@ -45,7 +46,7 @@ function buttonsFor (S) {
   }
 }
 
-function show (emissions, S) {
+async function show (emissions, S) {
   for (const e of emissions) {
     if (e.kind === 'text') {
       sent.text++
@@ -63,9 +64,22 @@ function show (emissions, S) {
       const moving = file && isAnimation(file)
       const noisy = moving && hasAudio(file)
       if (noisy) sent.artNoisy.add(e.art)
-      const tag = moving ? '[anim  ]' : '[art   ]'
+      // Named for how it will actually travel. A still goes as a sticker, and
+      // the conversion runs here too: an empty webp is a silent failure, so a
+      // dry run is the right place to find one rather than a scene.
+      let note = ''
+      if (file && !moving) {
+        try {
+          const webp = await stickerOf(file)
+          note = `  ${(webp.length / 1024).toFixed(0)}KB webp`
+        } catch (err) {
+          note = `  WILL NOT CONVERT: ${err.message}`
+          sent.artMissing.add(e.art)
+        }
+      }
+      const tag = moving ? '[anim   ]' : file ? '[sticker]' : '[art    ]'
       console.log(`  ${tag} ${e.art}${file ? '' : '  (no file yet)'}` +
-                  `${noisy ? '  (has audio)' : ''}`)
+                  `${noisy ? '  (has audio)' : ''}${note}`)
       // shown as the two messages it now is, not as one with a caption
       if (e.caption) {
         sent.text++
@@ -98,7 +112,7 @@ function show (emissions, S) {
 async function say (S, token) {
   console.log(`\n  > ${token}`)
   const r = await game.handle(S, token)
-  show(r.emissions, S)
+  await show(r.emissions, S)
   return r
 }
 
@@ -107,7 +121,7 @@ console.log(`\n  time scale ${t.scale}x — a game day is ${describeReal(t.gameD
 console.log(`  a spent qubit recharges over ${describeReal(1 / game.BASE_REGEN)}\n`)
 
 const S = game.newSession(7)
-show((await game.boot(S)).emissions, S)
+await show((await game.boot(S)).emissions, S)
 
 // The intro has the floor at boot, so walk through it rather than have the
 // first token bounced off a scene. Playing it rather than skipping it is the
@@ -135,7 +149,7 @@ let guard = 0
 while (!step.done && guard++ < 40) {
   if (S.run) S.run.startedMs -= game.READOUT_GAME_SECONDS * 1000
   step = game.step(S)
-  show(step.emissions, S)
+  await show(step.emissions, S)
 }
 
 console.log(`\n  sent ${sent.text} text, ${sent.photo} photos and ${sent.art} art (${sent.captions} carrying a reading) ` +

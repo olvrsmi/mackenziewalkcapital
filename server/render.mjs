@@ -13,12 +13,16 @@
 // Keep captions to ASCII: the bundled font has no mathematical angle brackets
 // (U+27E8/27E9) or box-drawing glyphs, and renders them as tofu.
 
-import { createCanvas, GlobalFonts } from '@napi-rs/canvas'
-import { existsSync, readFileSync } from 'node:fs'
+import { createCanvas, GlobalFonts, loadImage } from '@napi-rs/canvas'
+import { existsSync, readFileSync, statSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { t, holding } from './copy.mjs'
+// The nearest-neighbour resampler, borrowed rather than written twice. It is in
+// blur.mjs because the blur needed it first, but there is nothing blur-specific
+// about it and a second copy here would be a second thing to get wrong.
+import { nearest } from './blur.mjs'
 
 // Vendored rather than left to the host: a box with no Roboto would silently
 // fall back to whatever it does have, and the chart would be a different chart
@@ -328,6 +332,73 @@ export function artPath (name) {
  * instead, an mp4 is rejected and a gif arrives as a still.
  */
 export const isAnimation = (file) => /\.(mp4|gif)$/i.test(file || '')
+
+/**
+ * A still turned into a sticker: 512px WebP, transparency intact.
+ *
+ * Scene art is people and places cut out of their background, and a photo is
+ * the wrong envelope for that - Telegram fits a photo to the width of the
+ * message column, so a portrait either stretches or gets a blurred backdrop
+ * painted in behind it, and the cut-out is exactly what that destroys. A
+ * sticker is the one kind Telegram neither scales to the column nor pads, and
+ * it keeps the alpha channel.
+ *
+ * The conversion is not optional. sendSticker's own documentation takes
+ * ".WEBP, .TGS, or .WEBM" on upload - PNG is allowed when building a sticker
+ * SET, not when sending one - and the format requires one side to be exactly
+ * 512 with the other 512 or less. Every piece of art here is 1024 square, so
+ * every one of them needs resizing whatever else happens.
+ *
+ * Downscaled smoothly and upscaled with nearest neighbour, because those are
+ * different jobs: shrinking a drawing wants the averaging, and blowing up
+ * something small enough to need it (tower.png is 128) wants its edges kept
+ * rather than guessed at.
+ *
+ * Cached in memory against the file's mtime. Not on disk: the box's app
+ * directory is owned by root and the service runs as someone else, so there is
+ * nowhere beside the art to put it - and at ~17KB a piece there is no reason to
+ * want one.
+ *
+ * Async because canvas's own loadImage is, and the synchronous Image cannot be
+ * trusted here: assigning a Buffer to `src` reports complete = true and draws
+ * correctly into a small canvas, then draws NOTHING at 512, which comes back as
+ * a valid, correctly sized, entirely empty sticker. Caught by weighing the
+ * output - 1.0KB against 17.1KB for the same picture - which is the only reason
+ * it was caught at all.
+ */
+export const STICKER_SIDE = 512
+
+const stickers = new Map()
+
+export async function stickerOf (file) {
+  const stamp = statSync(file).mtimeMs
+  const had = stickers.get(file)
+  if (had && had.stamp === stamp) return had.webp
+  const webp = await buildSticker(file)
+  stickers.set(file, { stamp, webp })
+  return webp
+}
+
+async function buildSticker (file) {
+  const img = await loadImage(file)
+  const scale = STICKER_SIDE / Math.max(img.width, img.height)
+  const w = Math.max(1, Math.round(img.width * scale))
+  const h = Math.max(1, Math.round(img.height * scale))
+  // The long side has to land on exactly 512, and rounding the short one can
+  // leave the long one a pixel out on an odd aspect ratio.
+  const [tw, th] = img.width >= img.height
+    ? [STICKER_SIDE, Math.min(STICKER_SIDE, h)]
+    : [Math.min(STICKER_SIDE, w), STICKER_SIDE]
+
+  if (scale > 1) return nearest(img, tw, th).toBuffer('image/webp')
+  const canvas = createCanvas(tw, th)
+  const ctx = canvas.getContext('2d')
+  ctx.imageSmoothingEnabled = true
+  ctx.imageSmoothingQuality = 'high'
+  ctx.drawImage(img, 0, 0, tw, th)
+  return canvas.toBuffer('image/webp')
+}
+
 
 /**
  * Whether an mp4 carries an audio track.

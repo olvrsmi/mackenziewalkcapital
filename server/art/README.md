@@ -48,3 +48,29 @@ short, silent and small — a few seconds and well under 10MB.
 reports both directions — a name with no file, and a file no scene asks for.
 Neither is an error: a scene is meant to be writable before it is drawn, and a
 picture may sit here waiting for a scene to want it.
+
+## How stills travel
+
+As stickers, not photos. Scene art is cut out of its background, and a photo is
+the wrong envelope: Telegram fits a photo to the width of the message column, so
+a portrait either stretches or gets a blurred copy of itself painted in behind
+it - and the cut-out is exactly what that ruins. A sticker is the one kind
+Telegram neither fits to the column nor pads, and it keeps the alpha channel.
+
+Nothing needs preparing. Drop in a PNG at whatever size and `stickerOf` converts
+it on the way out: 512 on the long side, WebP, transparency intact, cached in
+memory against the file's mtime. That conversion is not a nicety - sendSticker
+takes `.WEBP`, `.TGS` or `.WEBM` on upload, so a PNG would be refused, and the
+format wants one side to be exactly 512.
+
+An mp4 or a gif still goes through `sendAnimation`, unchanged.
+
+Two things worth knowing:
+
+- **Stickers cannot carry a caption.** The line already travelled as its own
+  message after the picture, so nothing changes, but it is now forced rather
+  than chosen.
+- **The failure is silent.** Hand canvas an image that has not finished
+  decoding and it returns a valid, correctly sized, completely empty WebP.
+  `npm test` weighs every still before and after converting, because weight is
+  the only thing that tells you.

@@ -20,7 +20,7 @@ import { Bot, InlineKeyboard, InputFile, GrammyError, HttpError } from 'grammy'
 import * as game from './game.mjs'
 import { t, loadCopy, watchCopy, copyInfo, holding, moment } from './copy.mjs'
 import * as store from './sessions.mjs'
-import { renderEmission, RENDERABLE, artPath, isAnimation } from './render.mjs'
+import { renderEmission, RENDERABLE, artPath, isAnimation, stickerOf } from './render.mjs'
 import { modelInfo } from './model.mjs'
 import { timeInfo, describeReal } from './time.mjs'
 import { logEvent, logFile } from './log.mjs'
@@ -214,16 +214,40 @@ async function deliver (chatId, emissions, S, { keyboard = true } = {}) {
         // An mp4 or a gif has to go through sendAnimation - sent as a photo an
         // mp4 is refused outright and a gif arrives as a single still frame.
         const moving = isAnimation(file)
-        await bot.api.sendChatAction(chatId, moving ? 'upload_video' : 'upload_photo')
+        await bot.api.sendChatAction(chatId, moving ? 'upload_video' : 'choose_sticker')
           .catch(() => {})
-        // The media goes on its own and the line follows as its own message. A
-        // caption makes Telegram fit it to the text's width, which stretches a
-        // small portrait or pads it with a blurred background - so scene art is
-        // never captioned. The keyboard rides the last of the pair.
-        const send = moving ? bot.api.sendAnimation.bind(bot.api)
-                            : bot.api.sendPhoto.bind(bot.api)
-        await sendWithRetry(() => send(chatId, new InputFile(file),
-          cap ? {} : { reply_markup }), chatId)
+        // A still goes as a STICKER, not a photo. Scene art is people and
+        // places cut out of their background, and a photo is the wrong envelope
+        // for that: Telegram fits a photo to the width of the message column,
+        // so a portrait either stretches or has a blurred copy of itself
+        // painted in behind it, and the cut-out is the thing that ruins.
+        //
+        // The media goes on its own and the line follows as its own message.
+        // That was already true - a caption is what makes Telegram fit a photo
+        // to the text - and it is now also forced: sendSticker has no caption
+        // parameter at all. The keyboard rides the last of the pair.
+        let sent = false
+        if (!moving) {
+          try {
+            const webp = await stickerOf(file)
+            await sendWithRetry(() => bot.api.sendSticker(chatId,
+              new InputFile(webp, `${e.art}.webp`),
+              cap ? {} : { reply_markup }), chatId)
+            sent = true
+          } catch (err) {
+            // A picture that will not convert should cost the scene its
+            // picture, not its line. Photo rather than nothing, and said out
+            // loud, because a silent fallback here would look like it worked.
+            console.error(`  ${chatId}: ${e.art} would not convert to a sticker: ${err.message}`)
+            logEvent('sticker_failed', { chat: chatId, art: e.art, error: err.message })
+          }
+        }
+        if (!sent) {
+          const send = moving ? bot.api.sendAnimation.bind(bot.api)
+                              : bot.api.sendPhoto.bind(bot.api)
+          await sendWithRetry(() => send(chatId, new InputFile(file),
+            cap ? {} : { reply_markup }), chatId)
+        }
         if (cap) {
           await sendWithRetry(() => bot.api.sendMessage(chatId, cap,
             { parse_mode: 'HTML', reply_markup }), chatId)
