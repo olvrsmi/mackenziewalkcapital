@@ -48,6 +48,11 @@ const QCOL = ['#FF6C60', '#A8FF60', '#96CBFE', '#FF73FD',
               '#0B85DF', '#B18A3D']
 const qcol = (q) => QCOL[q % QCOL.length]
 
+// Exported so tools/ can show what a threshold does to each of these without
+// keeping its own copy of the hexes. A second list would drift the first time
+// one of these changed, and drift silently, since nothing compares them.
+export const PALETTE = { bg: BG, ink: INK, dim: DIM, line: LINE, amber: AMBER, qubits: QCOL }
+
 /** The same hue, washed toward the background - a ghost of a line, not a line. */
 function pastel (hex, mix = 0.55) {
   const n = parseInt(hex.slice(1), 16)

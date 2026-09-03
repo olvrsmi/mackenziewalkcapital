@@ -1,0 +1,354 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>blur bench</title>
+<style>
+  @font-face { font-family: "Roboto Mono"; src: url("/fonts/RobotoMono[wght].ttf"); }
+  @font-face { font-family: "Roboto Condensed"; src: url("/fonts/RobotoCondensed[wght].ttf"); }
+
+  :root {
+    --bg: #000; --panel: #0b0b0b; --line: #202020; --ink: #F6F3E8;
+    --dim: #909090; --amber: #F39000; --mono: "Roboto Mono", ui-monospace, monospace;
+    --sans: "Roboto Condensed", system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 12px/1.5 var(--mono); display: flex; min-height: 100vh; }
+
+  /* --- the controls ------------------------------------------------------ */
+  aside { width: 330px; flex: none; border-right: 1px solid var(--line);
+          padding: 14px; overflow-y: auto; height: 100vh; position: sticky; top: 0; }
+  h1 { font: bold 13px var(--sans); text-transform: uppercase; letter-spacing: .06em;
+       color: var(--amber); margin: 0 0 4px; }
+  h2 { font: bold 11px var(--sans); text-transform: uppercase; letter-spacing: .08em;
+       color: var(--dim); margin: 18px 0 6px; border-bottom: 1px solid var(--line);
+       padding-bottom: 4px; }
+  .sub { color: var(--dim); margin-bottom: 6px; }
+
+  .row { display: grid; grid-template-columns: 1fr auto; align-items: baseline;
+         gap: 6px; margin-top: 9px; }
+  .row label { color: var(--dim); }
+  .row .val { color: var(--ink); font-variant-numeric: tabular-nums; }
+  .row .free { color: #6a6a6a; font: 10px var(--mono); }
+  input[type=range] { grid-column: 1 / -1; width: 100%; accent-color: var(--amber);
+                      height: 16px; margin: 0; }
+  select, input[type=number] { grid-column: 1 / -1; width: 100%; background: #111;
+    color: var(--ink); border: 1px solid var(--line); font: 12px var(--mono);
+    padding: 4px 6px; }
+  .check { display: flex; gap: 8px; align-items: center; margin-top: 9px; color: var(--dim); }
+
+  button { font: bold 12px var(--sans); text-transform: uppercase; letter-spacing: .07em;
+    background: #111; color: var(--ink); border: 1px solid var(--line);
+    padding: 9px 12px; cursor: pointer; width: 100%; }
+  button:hover { border-color: var(--dim); }
+  button.dirty { background: var(--amber); color: #000; border-color: var(--amber); }
+  button:disabled { opacity: .5; cursor: wait; }
+  .ghost { background: transparent; margin-top: 6px; }
+
+  /* --- the luminosity ruler --------------------------------------------- */
+  .ruler { margin-top: 8px; }
+  .ruler .band { position: relative; height: 22px; border: 1px solid var(--line);
+    background: linear-gradient(to right, #000, #fff); }
+  .ruler .cut { position: absolute; top: -3px; bottom: -3px; width: 2px;
+    background: var(--amber); }
+  .ruler ul { list-style: none; padding: 0; margin: 6px 0 0; }
+  .ruler li { display: grid; grid-template-columns: 10px 1fr auto auto;
+    gap: 7px; align-items: center; padding: 1px 0; }
+  .ruler .chip { width: 10px; height: 10px; border: 1px solid #333; }
+  .ruler .n { color: var(--dim); font-variant-numeric: tabular-nums; }
+  .ruler .verdict { width: 42px; text-align: right; font: 10px var(--mono); }
+  .white { color: var(--ink); } .black { color: #555; }
+
+  /* --- the images -------------------------------------------------------- */
+  main { flex: 1; padding: 14px 18px; min-width: 0; }
+  .stages { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px;
+            margin-bottom: 14px; }
+  figure { margin: 0; }
+  figcaption { color: var(--dim); font: 10px var(--mono); text-transform: uppercase;
+               letter-spacing: .06em; margin-bottom: 4px; display: flex;
+               justify-content: space-between; }
+  img { display: block; width: 100%; border: 1px solid var(--line); background: #000; }
+  .pixel img { image-rendering: pixelated; }
+  .final { position: relative; max-width: 720px; }
+  .final img { border-color: var(--dim); }
+  .final .under { position: absolute; inset: 0; width: 100%; height: 100%;
+                  opacity: 0; transition: opacity .06s; }
+  .final.compare .under { opacity: 1; }
+
+  /* --- timings ----------------------------------------------------------- */
+  table { border-collapse: collapse; font: 11px var(--mono); margin-top: 4px; }
+  td { padding: 1px 10px 1px 0; }
+  td.n { text-align: right; font-variant-numeric: tabular-nums; color: var(--ink); }
+  td.k { color: var(--dim); }
+  .bars { margin-top: 8px; max-width: 720px; }
+  .bar { display: grid; grid-template-columns: 90px 1fr 62px; gap: 8px;
+         align-items: center; margin: 2px 0; }
+  .bar .track { height: 12px; background: #111; border: 1px solid var(--line); }
+  .bar .fill { height: 100%; background: var(--amber); }
+  .bar .fill.local { background: #2f6f8f; }
+  .note { color: var(--dim); margin-top: 10px; max-width: 720px; }
+  .err { color: #FF6C60; white-space: pre-wrap; margin-top: 10px; }
+  .flex { display: flex; gap: 18px; flex-wrap: wrap; }
+</style>
+
+<aside>
+  <h1>Blur bench</h1>
+  <div class="sub" id="fixture">loading…</div>
+
+  <h2>Downscale</h2>
+  <div class="row"><label>longest side</label><span class="val" id="v-size"></span>
+    <input type="range" id="size" min="16" max="512" step="8"></div>
+  <div class="sub" id="smallsize"></div>
+
+  <h2>Threshold</h2>
+  <div class="row"><label>level</label><span class="val" id="v-threshold"></span>
+    <input type="range" id="threshold" min="1" max="255" step="1"></div>
+  <div class="ruler">
+    <div class="band"><div class="cut" id="cut"></div></div>
+    <ul id="ruler"></ul>
+  </div>
+
+  <h2>Quantum blur</h2>
+  <div class="row"><label>strength</label><span class="val" id="v-strength"></span>
+    <input type="range" id="strength" min="0" max="1" step="0.01"></div>
+  <div class="row"><label>reach</label><span class="val" id="v-reach"></span>
+    <input type="range" id="reach" min="0" max="1" step="0.01"></div>
+  <div class="row"><label>gate</label><select id="style">
+    <option value="rx">rx — rotation about x</option>
+    <option value="ry">ry — rotation about y</option></select></div>
+  <div class="row"><label>pixel budget a pass</label><span class="val" id="v-engineSize"></span>
+    <input type="range" id="engineSize" min="8" max="1024" step="8"></div>
+  <label class="check"><input type="checkbox" id="downscaleRegions">
+    downscale regions over budget</label>
+
+  <h2>Blend <span class="free">free — no engine call</span></h2>
+  <div class="row"><label>mode</label><select id="blend"></select></div>
+  <div class="row"><label>opacity</label><span class="val" id="v-opacity"></span>
+    <input type="range" id="opacity" min="0" max="1" step="0.01"></div>
+  <div class="row"><label>overlay gain</label><span class="val" id="v-gain"></span>
+    <input type="range" id="gain" min="0.25" max="8" step="0.05"></div>
+  <div class="sub" id="layerstats"></div>
+
+  <h2>Compression</h2>
+  <div class="row"><label>sent to the engine</label><select id="format">
+    <option value="png">png — lossless</option>
+    <option value="jpeg">jpeg — lossy</option></select></div>
+  <div class="row"><label>jpeg quality</label><span class="val" id="v-quality"></span>
+    <input type="range" id="quality" min="0.3" max="1" step="0.01"></div>
+
+  <h2>Run</h2>
+  <button id="run">blur — 1 credit</button>
+  <button id="reset" class="ghost">back to defaults</button>
+  <button id="copy" class="ghost">copy settings as json</button>
+  <div class="sub" id="credits"></div>
+</aside>
+
+<main>
+  <div class="stages">
+    <figure class="pixel"><figcaption><span>1 · threshold</span><span id="cap-threshold"></span></figcaption>
+      <img id="im-threshold" alt="thresholded copy"></figure>
+    <figure class="pixel"><figcaption><span>2 · blurred</span><span id="cap-blurred"></span></figcaption>
+      <img id="im-blurred" alt="engine output"></figure>
+    <figure class="pixel"><figcaption><span>3 · nearest, full size</span><span id="cap-upscaled"></span></figcaption>
+      <img id="im-upscaled" alt="upscaled overlay"></figure>
+  </div>
+
+  <figure class="final" id="final">
+    <figcaption><span>4 · composited — press and hold to see the chart underneath</span>
+      <span id="cap-final"></span></figcaption>
+    <img id="im-final" alt="final composite">
+    <img id="im-base" class="under" src="/base.png" alt="chart, unblurred">
+  </figure>
+
+  <div class="flex">
+    <div>
+      <h2 style="margin-top:16px">Roundtrip</h2>
+      <div class="bars" id="bars"></div>
+    </div>
+    <div>
+      <h2 style="margin-top:16px">All timings</h2>
+      <table id="timings"></table>
+    </div>
+  </div>
+  <div class="note" id="note"></div>
+  <div class="err" id="err"></div>
+</main>
+
+<script type="module">
+const $ = (id) => document.getElementById(id)
+const KNOBS = ['size', 'threshold', 'strength', 'reach', 'style', 'engineSize',
+               'downscaleRegions', 'blend', 'opacity', 'gain', 'format', 'quality']
+// Everything the engine sees. Changing one of these needs a new run; the other
+// two - blend and opacity - are applied after the engine and cost nothing, so
+// they redraw as you drag.
+const UPSTREAM = new Set(['size', 'threshold', 'strength', 'reach', 'style',
+                          'engineSize', 'downscaleRegions', 'format', 'quality'])
+
+let meta, defaults, dirty = false, busy = false, ruler = []
+
+const val = (k) => {
+  const el = $(k)
+  if (el.type === 'checkbox') return el.checked
+  if (el.tagName === 'SELECT') return el.value
+  return Number(el.value)
+}
+const settings = () => Object.fromEntries(KNOBS.map((k) => [k, val(k)]))
+
+const FMT = { strength: 2, reach: 2, opacity: 2, gain: 2, quality: 2 }
+function showValues () {
+  for (const k of KNOBS) {
+    const out = $('v-' + k)
+    if (out) out.textContent = FMT[k] ? val(k).toFixed(FMT[k]) : val(k)
+  }
+  const t = val('threshold')
+  $('cut').style.left = `calc(${(t / 255) * 100}% - 1px)`
+  for (const li of $('ruler').children) {
+    const luma = Number(li.dataset.luma)
+    const v = li.querySelector('.verdict')
+    v.textContent = luma >= t ? 'white' : 'black'
+    v.className = 'verdict ' + (luma >= t ? 'white' : 'black')
+  }
+}
+
+function markDirty (k) {
+  if (!UPSTREAM.has(k)) return false
+  dirty = true
+  $('run').classList.add('dirty')
+  $('run').textContent = 'blur — 1 credit'
+  return true
+}
+
+async function run () {
+  if (busy) return
+  busy = true
+  $('run').disabled = true
+  $('err').textContent = ''
+  try {
+    const res = await fetch('/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(settings()),
+    })
+    const d = await res.json()
+    if (d.error) throw new Error(d.error)
+    paint(d)
+    dirty = false
+    $('run').classList.remove('dirty')
+    $('run').textContent = d.cached ? 'blur — cached, free' : 'blur — 1 credit'
+  } catch (err) {
+    $('err').textContent = err.message
+  } finally {
+    busy = false
+    $('run').disabled = false
+  }
+}
+
+function paint (d) {
+  for (const k of ['threshold', 'blurred', 'upscaled', 'final']) {
+    $('im-' + k).src = d.images[k]
+  }
+  const { full, small } = d.size
+  $('cap-threshold').textContent = `${small.width}×${small.height}`
+  $('cap-blurred').textContent = `${small.width}×${small.height}`
+  $('cap-upscaled').textContent = `nearest ×${(full.width / small.width).toFixed(1)}`
+  $('cap-final').textContent = `${full.width}×${full.height}`
+  $('smallsize').textContent = `copy is ${small.width}×${small.height} px, ` +
+    `${(small.width * small.height).toLocaleString()} pixels`
+
+  // The number that predicts the blend. Vivid light brightens what is above
+  // the midpoint and burns everything else, so "dodges" is how much of the
+  // chart survives - and on a chart it starts near nothing.
+  const st = d.stats
+  if (st) {
+    $('layerstats').innerHTML =
+      `threshold: ${st.threshold.white}% white, mean luma ${st.threshold.mean}<br>` +
+      `overlay: mean ${st.overlay.mean}, peak ${st.overlay.max}, ` +
+      `<b>${st.overlay.dodges}% above the midpoint</b>`
+  }
+  $('credits').textContent = `${d.credits} engine run${d.credits === 1 ? '' : 's'} this session` +
+    (d.cached ? ' · this one came from the cache' : '')
+
+  // --- the roundtrip, hop by hop ---
+  const api = d.timings.api
+  const local = [['downscale', d.timings.downscale], ['threshold', d.timings.threshold],
+                 ['upscale', d.timings.upscale], ['composite', d.timings.composite],
+                 ['encode', d.timings.encode]]
+  const hops = api
+    ? [['asset upload', api.asset], ['submit', api.submit],
+       ['queue + run', api.run], ['download', api.download]]
+    : []
+  const rows = [...hops.map(([k, v]) => [k, v, false]), ...local.map(([k, v]) => [k, v, true])]
+  const max = Math.max(1, ...rows.map((r) => r[1] || 0))
+  $('bars').innerHTML = rows.map(([k, v, isLocal]) => `
+    <div class="bar"><span class="k" style="color:var(--dim)">${k}</span>
+      <div class="track"><div class="fill ${isLocal ? 'local' : ''}"
+        style="width:${((v || 0) / max) * 100}%"></div></div>
+      <span class="n" style="text-align:right">${v == null ? '—' : v + ' ms'}</span></div>`).join('')
+
+  const localTotal = local.reduce((a, [, v]) => a + (v || 0), 0)
+  $('timings').innerHTML = [
+    api && ['engine, all four hops', api.total + ' ms'],
+    api && ['— of which queue + run', api.run + ' ms'],
+    api && [`— polls`, d.job ? d.job.polls : '—'],
+    ['local image work', localTotal + ' ms'],
+    ['bytes sent up', d.timings.upload_bytes
+      ? (d.timings.upload_bytes / 1024).toFixed(1) + ' KB' : '— (cached)'],
+    ['wall clock a chart', (api ? api.total + localTotal : localTotal) + ' ms'],
+  ].filter(Boolean).map(([k, v]) => `<tr><td class="k">${k}</td><td class="n">${v}</td></tr>`).join('')
+
+  $('note').textContent = api
+    ? `A chart costs ${((api.total + localTotal) / 1000).toFixed(1)}s and one credit while the ` +
+      `engine is in the path. The blue bars are local and would be the whole cost if the ` +
+      `blur were ever cached or precomputed.`
+    : 'Recomposited locally from the last blur — no engine call, no credit.'
+}
+
+// --- wiring ---------------------------------------------------------------
+
+const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms) } }
+const rerun = debounce(run, 70)
+
+for (const k of KNOBS) {
+  $(k).addEventListener('input', () => {
+    showValues()
+    // Blend, opacity and gain are downstream of the engine: cached, so instant.
+    if (!markDirty(k)) rerun()
+  })
+}
+$('run').addEventListener('click', run)
+$('reset').addEventListener('click', () => { fill(defaults); showValues(); run() })
+$('copy').addEventListener('click', async () => {
+  await navigator.clipboard.writeText(JSON.stringify(settings(), null, 2))
+  $('copy').textContent = 'copied'
+  setTimeout(() => ($('copy').textContent = 'copy settings as json'), 1200)
+})
+const final = $('final')
+for (const [on, cls] of [['pointerdown', true], ['pointerup', false], ['pointerleave', false]]) {
+  final.addEventListener(on, () => final.classList.toggle('compare', cls))
+}
+addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' || e.key.toLowerCase() === 'r') { e.preventDefault(); run() }
+})
+
+function fill (o) {
+  for (const k of KNOBS) {
+    const el = $(k)
+    if (el.type === 'checkbox') el.checked = Boolean(o[k])
+    else el.value = o[k]
+  }
+}
+
+meta = await (await fetch('/meta')).json()
+defaults = meta.defaults
+ruler = meta.ruler
+$('blend').innerHTML = meta.blends.map((b) => `<option value="${b}">${b}</option>`).join('')
+$('ruler').innerHTML = ruler.map((c) => `
+  <li data-luma="${c.luma}"><span class="chip" style="background:${c.hex}"></span>
+    <span>${c.name}</span><span class="n">${c.luma}</span>
+    <span class="verdict"></span></li>`).join('')
+const f = meta.fixture
+$('fixture').textContent = `${f.spec} · ${f.n} holdings · ${f.steps} steps · ` +
+  `coupling at ${f.invest_at} on q${f.target}`
+fill(defaults)
+showValues()
+run()
+</script>
