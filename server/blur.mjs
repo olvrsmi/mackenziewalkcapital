@@ -36,10 +36,10 @@ const ENGINE = 'blur-v2'
 
 export const DEFAULTS = {
   // the pipeline
-  size: 128,              // longest side of the downscaled copy, px
-  threshold: 28,          // Photoshop's Threshold level, 1-255
+  size: 256,              // longest side of the downscaled copy, px
+  threshold: 32,          // Photoshop's Threshold level, 1-255
   blend: 'vivid-light',
-  opacity: 1,             // layer opacity of the overlay, 0-1
+  opacity: 0.49,             // layer opacity of the overlay, 0-1
   // Not part of the Photoshop process, and 1 does nothing, so the defaults
   // still reproduce it exactly. It is here because of what the numbers say: a
   // chart is about 95% background, so a thresholded copy is only about 5%
@@ -47,12 +47,12 @@ export const DEFAULTS = {
   // adding any, so spreading that 5% across the whole canvas leaves almost
   // nothing above 0.5. Vivid light burns everything below 0.5 toward black,
   // so the overlay has to be lifted before it can do anything but darken.
-  gain: 1,                // multiplier on the overlay, before blending
+  gain: 3.9,                // multiplier on the overlay, before blending
 
   // blur-v2's own params
   strength: 0.7,          // 0 leaves the image alone, 1 is maximum blur
   style: 'rx',            // rx or ry: the gate the rotation uses
-  reach: 0,               // 0 fully local, 1 fully non-local
+  reach: 0.2,               // 0 fully local, 1 fully non-local
   engineSize: 1024,       // pixel budget per pass; ours is smaller than this
   downscaleRegions: true, // engine-side strategy for regions over budget
 
