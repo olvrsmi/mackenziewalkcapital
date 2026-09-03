@@ -411,8 +411,8 @@ beats:
 # it joins the opening - the engine does no chaining of its own.
 opening:
   - intro
+  - office
   - tutorial
-  - voice
   - orientation
 
 sequences:
@@ -492,7 +492,7 @@ sequences:
   
   # Specified later. An empty sequence simply does not play, so this can sit
   # here unfinished without affecting anything.
-  tutorial: 
+  office: 
     - text: _You step out at floor 17 and fail to orient yourself, only when you pass the lift for the 4th or 5th time do you spot the door to office 178._
 
     - text: _You push open the door and see Navinder stood staring out the window, he's the only other person in there_
@@ -570,7 +570,7 @@ sequences:
   # Keep it free of choices and asks. /help can arrive mid-position, and a
   # scene that stops to ask something would leave the player holding a
   # question instead of a holding - copy-check refuses one.
-  voice:
+  tutorial:
     - speaker: Disembodied Voice
       text: |
         _A disembodied voice starts talking, Navinder doesn't stop explaining (maybe he can't hear it) but you can't hear him any more. It's weirdly present, and feels like some placeholder text in an unfinished world to you..._
@@ -645,12 +645,12 @@ sequences:
   probation_failed_again: []
 
   # Navinder again, once the voice has finished. Its own scene only because
-  # the voice between them is one - see the note above `voice`.
+  # the voice between them is one - see the note above `tutorial`.
   orientation:
     - art: oldhead
       speaker: Navinder
       text: |
-       Got that?
+        Got that?
       choices:
         a:
           label: yes, thanks!

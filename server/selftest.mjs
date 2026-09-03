@@ -540,6 +540,50 @@ const ok = (name, cond, detail = '') => {
   ok('and it is not a setpiece', !again.beat)
 }
 
+// --- a scene that is not there ----------------------------------------------
+{
+  // Three ways a session used to strand, all of them fatal and all of them
+  // silent: the player's messages did nothing, the day's messages kept coming,
+  // and `skip` was the only way out. These are the states, verbatim, that came
+  // off disk when it happened.
+  const opening = list('opening')
+
+  // 1. expect pointing at a scene that finished. What the old boot wrote every
+  //    time a scene had nothing to answer in it.
+  const stranded = game.newSession(201)
+  stranded.expect = 'sequence'
+  stranded.seq = null
+  stranded.seqSeen = opening.slice(0, -1)
+  const freed = await game.handle(stranded, 'hello')
+  ok('a finished scene left in expect does not strand the session',
+     stranded.expect !== 'sequence' || game.inSequence(stranded),
+     `expect ${stranded.expect}, scene ${stranded.seq && stranded.seq.id}`)
+  ok('and it picks up at the scene that had not played',
+     game.inSequence(stranded) && stranded.seq.id === opening[opening.length - 1],
+     String(stranded.seq && stranded.seq.id))
+  ok('and says something rather than nothing', freed.emissions.length > 0)
+
+  // 2. standing in a scene that has since been renamed in copy
+  const renamed = game.newSession(202)
+  renamed.expect = 'sequence'
+  renamed.seq = { id: 'a_scene_that_used_to_exist', at: 2, awaiting: 'choice' }
+  const rescued = await game.handle(renamed, 'a')
+  ok('a scene renamed under a player does not strand them',
+     renamed.seq === null || renamed.seq.id !== 'a_scene_that_used_to_exist',
+     String(renamed.seq && renamed.seq.id))
+  ok('and the game speaks again', rescued.emissions.length > 0)
+
+  // 3. expect left on 'boot', which endSequence writes and nothing dispatched
+  const booting = game.newSession(203)
+  booting.expect = 'boot'
+  booting.seqSeen = opening
+  booting.rounds = 2
+  const rebooted = await game.handle(booting, 'anything')
+  ok("expect 'boot' is a state the game can leave",
+     booting.expect !== 'boot', `expect ${booting.expect}`)
+  ok('and it comes back with the game', rebooted.emissions.some((e) => isRoundPanel(e.text)))
+}
+
 // --- price is a picture, not a payout ---------------------------------------
 {
   // The book still orders the holdings - more contracts is dearer - but the

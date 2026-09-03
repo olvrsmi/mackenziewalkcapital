@@ -636,6 +636,25 @@ export async function handle (S, raw, emit = null) {
   const out = (...e) => ({ emissions: [...(preSent ? [] : pre), ...e.flat()] })
   const cmd = String(raw || '').trim().toLowerCase()
 
+  // --- a state with nothing behind it -------------------------------------
+  // Two ways in, and both stranded the player completely.
+  //
+  // A scene that finished while `expect` was left pointing at it. That is what
+  // the old boot did to any scene with nothing to answer: the voice played its
+  // four pages, ended itself, and boot then set expect to 'sequence' and
+  // returned. The session went to disk saying it was in a scene that was not
+  // there.
+  //
+  // And a scene renamed in copy while someone was standing in it - which is a
+  // normal thing to do to a script that is still being written.
+  //
+  // Either way nothing answered, the only way out was `skip`, which nobody
+  // knows to type, and the day's own messages kept arriving on the timer - so
+  // the game looked alive and was not. Both heal into a boot, which picks up at
+  // the next unplayed scene.
+  if (inSequence(S) && !(section(`sequences.${S.seq.id}`) || []).length) endSequence(S)
+  if (S.expect === 'sequence' && !inSequence(S)) S.expect = 'boot'
+
   // A running scene has the floor. It answers first, and a command it does not
   // recognise gets a nudge rather than falling through to the game - unlike a
   // beat, which must never swallow one.
@@ -660,6 +679,12 @@ export async function handle (S, raw, emit = null) {
   // that is not one of its choices falls through to the game untouched.
   const answered = answerBeat(S, cmd)
   if (answered) return out(answered)
+
+  // Not yet booted, or healed above into needing one. Below the beat on
+  // purpose: 'boot' is also what a session says before its first message, and
+  // a pending beat is answerable at any moment - putting this above it meant
+  // every first reply was swallowed by a boot.
+  if (S.expect === 'boot') return out(...(await boot(S)).emissions)
 
   if (!cmd) return out(text(t('prompts.say_something')))
   // The voice again, then the keys. The voice says what the terminal is for and
@@ -1121,7 +1146,7 @@ export function endSequence (S) {
  * The scene that /help plays. Named here rather than in copy because the
  * command is in code; copy-check confirms the scene exists and is replayable.
  */
-export const HELP_SCENE = 'voice'
+export const HELP_SCENE = 'tutorial'
 
 /**
  * A scene's lines, said again, without entering it.
