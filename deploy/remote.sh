@@ -46,39 +46,118 @@ as_service_user () {
 
 [ -d "$APP/.git" ] || die "no clone at $APP. Run setup.sh on this box first."
 
-# Git, with the box's own configuration out of the way. A credential helper, a
-# stored ~/.git-credentials, or an insteadOf rule that rewrites github.com urls
-# to carry a token all make git present a credential this repository does not
-# need - and GitHub answers a rejected credential with 401 even for a public
-# repository. The remote url alone does not fix that. Ignoring global and system
-# config does; the repository's own config is all that is left, and we set it.
+# Git, with everything that could authenticate out of the way.
+#
+# The repository is public and needs no credential. A box that sends one anyway
+# gets a 401: GitHub rejects a bad credential rather than falling back to
+# anonymous access. Credentials reach git from three places, and each needs its
+# own answer:
+#
+#   global and system config   nulled by the environment below
+#   the ambient environment    prompts, askpass and injected -c all disabled
+#   the clone's own config     read and stripped, because -c cannot name them
+#
+# That last one is why this failed for so long. A token is carried by keys whose
+# names are URL-scoped - `http.https://github.com/.extraheader`, or an
+# `insteadOf` rewrite - so there is no fixed name to override with -c, and a
+# clone's own config is not what GIT_CONFIG_GLOBAL covers. Overriding the names
+# we can think of is a losing game; reading the names the clone actually has is
+# not.
 clean_git () {
   # and never hang: a credential helper waiting on something can block a fetch
   # indefinitely, which on a box looks like a deploy that simply stopped
-  local guard=(); command -v timeout >/dev/null && guard=(timeout 300)
-  GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
-  GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=/bin/true \
-    "${guard[@]}" git -c credential.helper= -c http.extraheader= "$@"
+  local guard=() quiet
+  if command -v timeout >/dev/null 2>&1; then guard=(timeout 300); fi
+  # An askpass that exists on both: /bin/true on a box, /usr/bin/true on a
+  # laptop. This script is meant to run against a scratch tree - that is how it
+  # gets tested anywhere other than a box - and a path present on only one of
+  # them turns every git call into "cannot run /bin/true", which is how a git
+  # bug goes unnoticed here and only shows up over ssh.
+  quiet=$(command -v true)
+  # ${a[@]+...} because an empty array under `set -u` is an error in the bash a
+  # laptop ships, though not in the one a box does.
+  GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null GIT_CONFIG_COUNT=0 \
+  GIT_TERMINAL_PROMPT=0 GIT_ASKPASS="$quiet" \
+    ${guard[@]+"${guard[@]}"} git -c credential.helper= -c http.extraheader= "$@"
 }
-# What would have made git authenticate, with any secret masked.
+
+# Config keys that can make git send a credential, matched by shape rather than
+# by name - each of them can appear URL-scoped, so `http.extraheader` and
+# `http.https://github.com/.extraheader` are one key wearing two names. include
+# is here because a file we did not write can hold any of the others, and a
+# clone this script created has no reason to include one.
+GIT_AUTH_KEYS='(^credential\.|^include\.|^includeif\.|\.insteadof$|\.pushinsteadof$|\.extraheader$|^http\.cookiefile$)'
+MASK='s#(https?://)[^@/[:space:]]+@#\1***@#g'
+
+# Take them out of a clone's own config, saying which. Only --local: global and
+# system are already nulled above, and are not ours to rewrite.
+strip_repo_auth () {
+  local dir=$1
+  clean_git -C "$dir" config --local --list --name-only 2>/dev/null \
+    | grep -Ei "$GIT_AUTH_KEYS" \
+    | while read -r key; do
+        [ -n "$key" ] || continue
+        clean_git -C "$dir" config --local --unset-all "$key" 2>/dev/null || true
+        note "removed $(printf '%s' "$key" | sed -E "$MASK") from the clone's config"
+      done
+}
+
+# Whether this box can reach the repository with no clone in play. Run from a
+# directory that is not a repository, so only global and system config could
+# apply - and clean_git nulls both. It tells "the clone is poisoned" apart from
+# "this box cannot reach GitHub", which look identical from inside a failed
+# fetch.
+reaches_github () {
+  local tmp; tmp=$(mktemp -d); local ok=1
+  if ( cd "$tmp" && clean_git ls-remote --heads "$REPO" >/dev/null 2>&1 ); then ok=0; fi
+  rmdir "$tmp" 2>/dev/null || true
+  return $ok
+}
+
+# What could still be authenticating: key names, never values. A name is enough
+# to find the culprit and a value is the token itself - though a name can carry
+# one too, in an insteadOf url, so names are masked as well.
 git_auth_sources () {
-  { git config --show-origin --get-regexp '^(url\..*\.insteadof|credential\.|http\.extraheader)' 2>/dev/null
-    [ -f ~/.git-credentials ] && echo "file:~/.git-credentials  (exists)"
-  } | sed -E 's#(https?://)[^@/[:space:]]+@#\1***@#g' | sed 's/^/         /'
+  local dir=${1:-} found=''
+  found=$( { if [ -n "$dir" ]; then
+               clean_git -C "$dir" config --local --list --name-only 2>/dev/null \
+                 | sed 's#^#the clone:  #' || true
+             fi
+             git config --global --list --name-only 2>/dev/null | sed 's#^#global:     #' || true
+             git config --system --list --name-only 2>/dev/null | sed 's#^#system:     #' || true
+           } | grep -Ei "$GIT_AUTH_KEYS" || true )
+  if [ -f "$HOME/.git-credentials" ]; then found="$found
+file:       ~/.git-credentials"; fi
+  if [ -f "$HOME/.netrc" ]; then found="$found
+file:       ~/.netrc"; fi
+  printf '%s\n' "${found:-nothing this script knows how to look for}" \
+    | sed -E "$MASK" | sed 's/^/         /'
+}
+
+# Why the fetch failed, in the terms that tell you what to do about it.
+fetch_diagnosis () {
+  if reaches_github; then
+    printf 'This box reaches the repository fine from outside the clone, so what
+       authenticates is in %s/.git/config. Everything there that
+       could, which this run has already tried to remove:
+%s' "$APP" "$(git_auth_sources "$APP")"
+  else
+    printf 'This box cannot reach the repository from outside the clone either,
+       so the clone is not the cause. Either the network blocks it, or the
+       environment authenticates:
+%s' "$(git_auth_sources)"
+  fi
 }
 
 # --- code -------------------------------------------------------------------
 if [ -n "$REF" ]; then
   say "Code"
   clean_git -C "$APP" remote set-url origin "$REPO"
-  clean_git -C "$APP" config --local --unset-all http.extraheader 2>/dev/null || true
+  strip_repo_auth "$APP"
   if ! err=$(clean_git -C "$APP" fetch --quiet --tags origin 2>&1); then
     die "could not fetch $REPO
          git said: ${err:-nothing}
-       The repository is public, so a 401 means this box presented a credential
-       GitHub rejected. Where it might come from:
-$(git_auth_sources)
-       Remove it, or rotate it, and deploy again."
+       $(fetch_diagnosis)"
   fi
   clean_git -C "$APP" reset --quiet --hard "$REF" 2>/dev/null \
     || clean_git -C "$APP" reset --quiet --hard "origin/$REF"
