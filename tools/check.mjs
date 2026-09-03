@@ -12,7 +12,7 @@
 import { readFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { DEFAULTS, blendNames, BLEND_MODES } from '../server/blur.mjs'
+import { DEFAULTS, blendNames, BLEND_MODES, gainUp, canvasOf } from '../server/blur.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 let bad = 0
@@ -66,12 +66,61 @@ const leaked = upstream.filter((k) => !new RegExp(`\\bo\\.${k}\\b`).test(key))
 ok('every engine-facing setting is in the cache key', !leaked.length, leaked.join(' '))
 
 // --- the blend list -------------------------------------------------------
-ok('vivid light is the default blend', DEFAULTS.blend === 'vivid-light')
-ok('the default blend exists', Boolean(BLEND_MODES[DEFAULTS.blend]))
+ok('the default blend exists', Boolean(BLEND_MODES[DEFAULTS.blend]), DEFAULTS.blend)
 ok('vivid light is identity at the midpoint',
    Math.abs(BLEND_MODES['vivid-light'](0.37, 0.5) - 0.37) < 1e-12)
-ok('gain does nothing at its default', DEFAULTS.gain === 1)
 ok('every blend mode is a function', blendNames().every((b) => typeof BLEND_MODES[b] === 'function'))
+
+// A gain of 1 leaves the overlay alone. The BEHAVIOUR, not the default: what
+// the defaults are tuned to is a decision made at the bench, and an earlier
+// version of this asserted `DEFAULTS.gain === 1` and went red the moment that
+// tuning was committed.
+{
+  const px = (c) => [...c.getContext('2d').getImageData(0, 0, 4, 4).data].slice(0, 4)
+  const filled = (colour) => {
+    const { canvas, ctx } = canvasOf(4, 4)
+    ctx.fillStyle = colour
+    ctx.fillRect(0, 0, 4, 4)
+    return canvas
+  }
+
+  const flat = filled('rgb(60,90,120)')
+  const before = px(flat)
+  gainUp(flat, 1)
+  ok('a gain of 1 leaves every pixel alone', px(flat).join() === before.join(),
+     `${before} -> ${px(flat)}`)
+  gainUp(flat, 2)
+  ok('a gain of 2 doubles the colour', px(flat).slice(0, 3).join() === '120,180,240',
+     `${before} -> ${px(flat)}`)
+  gainUp(flat, 8)
+  ok('and it clamps rather than wrapping', px(flat).slice(0, 3).join() === '255,255,255',
+     String(px(flat)))
+
+  // Alpha on its own, with a half-transparent fill: an overlay that came back
+  // with transparency must keep it, or the blend weights it as if it were
+  // black. Opaque above because the canvas keeps colour premultiplied and
+  // unpremultiplying rounds - 200 comes back 201 and doubles to 161, not 160.
+  const soft = filled('rgba(80,120,200,0.5)')
+  const alphaBefore = px(soft)[3]
+  gainUp(soft, 3)
+  ok('gain never touches alpha', px(soft)[3] === alphaBefore,
+     `${alphaBefore} -> ${px(soft)[3]}`)
+}
+
+// The defaults are hand-edited now that they carry tuning, so they are checked
+// against what blur-v2 and the pipeline will actually accept rather than
+// against particular values.
+const RANGES = {
+  size: [8, 2048], threshold: [1, 255], opacity: [0, 1], gain: [0.01, 64],
+  strength: [0, 1], reach: [0, 1], engineSize: [8, 1024], quality: [0.1, 1],
+}
+for (const [k, [lo, hi]] of Object.entries(RANGES)) {
+  ok(`the default ${k} is in range`, DEFAULTS[k] >= lo && DEFAULTS[k] <= hi,
+     `${DEFAULTS[k]}, allowed ${lo}..${hi}`)
+}
+ok('the default gate is one blur-v2 knows', ['rx', 'ry'].includes(DEFAULTS.style))
+ok('the default upload format is one the API takes',
+   ['png', 'jpeg'].includes(DEFAULTS.format))
 
 // --- the fixture ----------------------------------------------------------
 ok('the fixture is the widest world there is', fixture.info.n === 7,

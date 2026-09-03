@@ -5,8 +5,11 @@ lives in [`../server/blur.mjs`](../server/blur.mjs) and this only drives it, so
 a setting that looks right here is a setting the bot will run.
 
 ```bash
-cd server && npm run blur-bench     # then open http://localhost:5060
+cd server && npm run blur-bench     # then open http://localhost:5081
 ```
+
+Port 5081 because Firefox refuses 5060 - it is a SIP port and the browser
+blocks it outright. `PORT` overrides.
 
 The Moth key is read from `../../moth-api/KEY` unless `MW_MOTH_KEY` or
 `MW_MOTH_KEY_FILE` says otherwise. It stays on the server: the page posts

@@ -124,7 +124,10 @@ export const blendNames = () => Object.keys(BLEND_MODES)
 // The steps
 // ---------------------------------------------------------------------------
 
-const canvasOf = (w, h) => {
+// Exported so tools/ can make a canvas without importing @napi-rs/canvas
+// itself: node_modules lives beside this file, not beside tools/, and a
+// package import from there does not resolve.
+export const canvasOf = (w, h) => {
   const c = createCanvas(w, h)
   return { canvas: c, ctx: c.getContext('2d') }
 }
