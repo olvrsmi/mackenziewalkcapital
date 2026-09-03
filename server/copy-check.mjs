@@ -135,6 +135,34 @@ const collectArt = (node) => {
 collectArt(_lookup('sequences'))
 collectArt(_lookup('beats'))
 
+// --- scenes the engine names ------------------------------------------------
+// Three scene ids live in code rather than in a list, so a rename or an empty
+// list here is a hole nothing else would notice: the verdicts are what a
+// probation week ends with, and the help scene is what /help says.
+for (const id of ['probation_passed', 'probation_failed']) {
+  const nodes = _lookup(`sequences.${id}`)
+  if (!Array.isArray(nodes) || nodes.length === 0) {
+    problems.push(`sequences.${id} is empty or missing - a probation week ends ` +
+      `on it, and the engine has nothing else to say`)
+  }
+}
+
+const helpNodes = _lookup(`sequences.${game.HELP_SCENE}`)
+if (!Array.isArray(helpNodes) || helpNodes.length === 0) {
+  problems.push(`sequences.${game.HELP_SCENE} is empty or missing - /help plays it`)
+} else {
+  // /help can be typed mid-position, and it narrates rather than entering the
+  // scene, so nothing is listening for an answer. A question here would be
+  // asked into the void.
+  const asks = helpNodes
+    .map((n, i) => (n && (n.choices || n.ask) ? i : -1))
+    .filter((i) => i >= 0)
+  if (asks.length) {
+    problems.push(`sequences.${game.HELP_SCENE} node(s) ${asks.join(', ')} stop to ask ` +
+      `something, but /help only reads a scene out - nothing would hear the answer`)
+  }
+}
+
 const onDisk = existsSync(ART)
   ? new Set(readdirSync(ART)
       .filter((f) => /\.(png|jpe?g|webp|gif|mp4)$/i.test(f))

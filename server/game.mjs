@@ -282,7 +282,13 @@ export function closeDay (S) {
   }
 
   return { pl, traded, good, wasBudget, next, bonusPaid, weekTotal, verdict,
-           attempt: S.attempts || 1, day: S.dayIndex }
+           attempt: S.attempts || 1,
+           // attempts counts sittings and has already been bumped by the
+           // failure above, so the first failure arrives as attempt 2. Saying
+           // it as a count of failures instead means nothing downstream has to
+           // remember that.
+           failures: (S.attempts || 1) - 1,
+           day: S.dayIndex }
 }
 
 function tickLines (elapsed) {
@@ -487,19 +493,29 @@ export async function hydrate (S) {
 export async function boot (S) {
   await hydrate(S)
   // A first sitting plays the opening scenes instead of the welcome, and the
-  // game waits behind them. No chaining logic: when a scene ends, handle() boots
-  // again, and boot finds the next unseen one. So the order is a copy edit.
+  // game waits behind them. The order is a copy edit: `opening` is a list, and
+  // this walks it.
+  //
+  // Scenes are taken until one actually stops to ask something. A scene with
+  // nothing to answer - the voice is four pages and no questions - plays
+  // straight through and the next one follows in the same breath. Returning
+  // after it instead left `expect` on a scene that had already finished, and
+  // the rest of the opening waited for the player to say something to nobody.
+  const opening = []
   for (const id of list('opening')) {
     if ((S.seqSeen || []).includes(id)) continue
-    const scene = startSequence(S, id)
-    if (!scene.length) { S.seqSeen = [...(S.seqSeen || []), id]; continue }
-    S.expect = 'sequence'
-    return { emissions: scene }
+    opening.push(...startSequence(S, id))
+    if (inSequence(S)) {
+      S.expect = 'sequence'
+      return { emissions: opening }
+    }
   }
 
   const rnd = mulberry(S.seed + S.rounds * 7919)
   return {
     emissions: [
+      // whatever of the opening played straight through, before the game
+      ...opening,
       // The intro is IN PLACE OF the welcome, not before it - so a player who
       // has been walked up to the desk is not then read the brochure. Skipping
       // the intro skips this too; `help` is where the rules live either way.
@@ -541,7 +557,19 @@ export async function boot (S) {
 
 export const PRICE_SIGMA = Number(process.env.MW_PRICE_SIGMA || 0.5)
 const PRICE_UNIT = Number(process.env.MW_PRICE_UNIT || 90)
-const FLOAT_SPREAD = 1.7        // widest the issued float pulls a quote either way
+// How hard the book is compressed into a price. The book runs 0 to 12 across
+// the worlds, so left alone it spans thirteenfold and the dear holdings use the
+// whole frame while the cheap ones crowd the floor. An exponent squashes that
+// without reordering anything: 0.35 takes the widest world from 8.4x between
+// its cheapest and dearest holding down to 2.3x, and the median world from 2.5x
+// to 1.4x.
+//
+// Only the picture changes. A payout is stake x (1 + priceReturn(zIn, zOut)),
+// which is a function of the readings alone - the base cancels - and a stake is
+// what the player names rather than what a holding costs. So this is the shape
+// of the chart and nothing else.
+const PRICE_GAMMA = Number(process.env.MW_PRICE_GAMMA || 0.35)
+const FLOAT_SPREAD = 1.3        // widest the issued float pulls a quote either way
 
 /** The listing price of holding q: what it trades at when <Z> is zero. */
 export function basePrice (info, q) {
@@ -551,7 +579,7 @@ export function basePrice (info, q) {
   let h = 0
   for (const c of `${info.id}:${q}`) h = (Math.imul(h, 31) + c.charCodeAt(0)) | 0
   const float = Math.exp((mulberry(h)() - 0.5) * 2 * Math.log(FLOAT_SPREAD))
-  return PRICE_UNIT * (1 + book) * float
+  return PRICE_UNIT * Math.pow(1 + book, PRICE_GAMMA) * float
 }
 
 /** What holding q quotes at, given its reading. */
@@ -634,7 +662,11 @@ export async function handle (S, raw, emit = null) {
   if (answered) return out(answered)
 
   if (!cmd) return out(text(t('prompts.say_something')))
-  if (cmd === 'help' || cmd === '?') return out(text(t('prompts.help')))
+  // The voice again, then the keys. The voice says what the terminal is for and
+  // never names a keystroke, so the list underneath is not a repeat of it.
+  if (cmd === 'help' || cmd === '?') {
+    return out(...narrate(S, HELP_SCENE), text(t('prompts.help')))
+  }
   if (cmd === 'state' || cmd === 'status') return out(sceneMain(S))
 
   switch (S.expect) {
@@ -1024,10 +1056,10 @@ function settle (S, { closeRound = true } = {}) {
 // ---------------------------------------------------------------------------
 
 /** Begin a named sequence. Returns nothing if there is no such sequence. */
-export function startSequence (S, id) {
+export function startSequence (S, id, vars = null) {
   const nodes = section(`sequences.${id}`)
   if (!Array.isArray(nodes) || !nodes.length) return []
-  S.seq = { id, at: 0, awaiting: null }
+  S.seq = { id, at: 0, awaiting: null, ...(vars ? { vars } : {}) }
   S.vars ??= {}
   return runSequence(S)
 }
@@ -1041,6 +1073,10 @@ const seqCtx = (S) => ({
   ...S.vars,
   budget: money(S.budget),
   coherence: S.coherence.toFixed(3),
+  // Last, so a scene handed its own facts wins. They ride on S.seq rather than
+  // S.vars because they belong to this playing of the scene - S.vars holds what
+  // the player told us about themselves, and a week's numbers are not that.
+  ...(S.seq && S.seq.vars),
 })
 
 /** One node, as emissions. A picture and a line travel as one message. */
@@ -1079,6 +1115,25 @@ export function endSequence (S) {
   S.seq = null
   S.expect = 'boot'
   return []
+}
+
+/**
+ * The scene that /help plays. Named here rather than in copy because the
+ * command is in code; copy-check confirms the scene exists and is replayable.
+ */
+export const HELP_SCENE = 'voice'
+
+/**
+ * A scene's lines, said again, without entering it.
+ *
+ * /help can be typed at any moment - mid-position, mid-scene, at the bell - so
+ * this touches nothing the game runs on: no S.seq, no seqSeen, no expect. It
+ * reads the nodes and renders them, which is exactly why the scene it names
+ * must not stop to ask anything. A choice here would leave the player holding
+ * a question with nothing listening for the answer, so copy-check refuses one.
+ */
+export function narrate (S, id) {
+  return (section(`sequences.${id}`) || []).flatMap((node) => seqEmit(S, node, node.text))
 }
 
 /** The choices a sequence is waiting on, or none. */
@@ -1243,6 +1298,22 @@ export function nextWake (S, nowMs = Date.now()) {
   return Math.max(1000, Math.min(3600000, ...due))
 }
 
+/**
+ * Which scene a verdict plays.
+ *
+ * Passing happens once - it takes the desk off probation for good - so there is
+ * one scene for it. Failing can happen over and over, so the written scene
+ * plays on the first failure and a shorter one after that; if the short one has
+ * not been written yet the full one plays again, which is worse than a variant
+ * and much better than silence.
+ */
+function verdictScene (r) {
+  if (r.verdict === 'passed') return 'probation_passed'
+  const again = 'probation_failed_again'
+  const written = (id) => ((section(`sequences.${id}`) || []).length > 0)
+  return r.failures > 1 && written(again) ? again : 'probation_failed'
+}
+
 export function endOfDay (S) {
   const r = closeDay(S)
   const out = [text(t('scenes.day_end', {
@@ -1259,19 +1330,30 @@ export function endOfDay (S) {
   const beat = fireBeat(S)
 
   if (r.weekTotal !== null) {
-    // On probation the week is a verdict, not an accounting - a different
-    // message entirely, because "no bonus this week" is not what has happened.
-    out.push(text(t(r.verdict ? `scenes.probation_${r.verdict}` : 'scenes.week_end', {
+    const ctx = {
       total: `${r.weekTotal >= 0 ? '+' : ''}${money(r.weekTotal)}`,
       total_raw: r.weekTotal,
       paid: r.bonusPaid > 0,
       bonus: money(r.bonusPaid),
       pot: money(S.bonus),
       attempt: r.attempt,
+      failures: r.failures,
       again: r.attempt > 1,
       budget: money(START_BUDGET),
       coherence: S.coherence.toFixed(3),
-    })))
+    }
+    if (r.verdict) {
+      // On probation the week is a verdict rather than an accounting, and a
+      // verdict is a scene: people say things about it, and the player answers.
+      // It takes the floor the way the opening does - the new week's worlds are
+      // offered by the boot that follows the scene, not underneath it.
+      out.push(...startSequence(S, verdictScene(r), ctx))
+      if (inSequence(S)) S.expect = 'sequence'
+    } else {
+      // Off probation a week is an accounting: "no bonus this week" is a fact
+      // about money, not something anyone comes over to tell you.
+      out.push(text(t('scenes.week_end', ctx)))
+    }
   }
   return [...out, ...beat]
 }
@@ -1285,6 +1367,10 @@ function endRound (S) {
     S.expect = 'over'
     return [{ kind: 'text', text: t('scenes.broke') }]
   }
+  // A verdict scene has the floor. The round it hands back to is offered by
+  // the boot that follows the scene ending - offering it here would print next
+  // week's worlds underneath a conversation that has not finished happening.
+  if (inSequence(S)) return []
   const rnd = mulberry(S.seed + S.rounds * 7919)
   return [...sceneMain(S), ...offerWorlds(S, rnd)]
 }

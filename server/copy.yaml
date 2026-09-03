@@ -21,8 +21,10 @@
 scenes:
 
   # {round} {coherence} {recovery} {recovering} {balance} {subscribed} {daily}
+  # {round} is still counted and still available here, it just is not the title
+  # any more: what this panel is is a list of what can be invested in.
   round: |
-    **Round {round}**
+    **Investment Options**
 
     Day {day} · {day_left} left
     Your coherence: {coherence}{#if recovering} (recovery in {recovery}){/if}
@@ -126,19 +128,6 @@ scenes:
     {#if paid}A personal bonus of {bonus} has been paid. Your pot stands at {pot}. It cannot be invested.{:else}No bonus this week.{/if}
 
   # {total} {attempt} {again} {coherence} — the probation week ended in profit
-  probation_passed: |
-    **Seven days. {total}.**
-
-    You are off probation. The desk is yours.
-
-  # {total} {attempt} {again} {budget} {coherence}
-  probation_failed: |
-    **Seven days. {total}.**
-
-    Not a profitable week, so not yet a desk. You start again on {budget}{#if again} — attempt {attempt}{/if}.
-
-    Your qubit is where you left it, at {coherence}. That much is yours.
-
   # {exit} {remaining} {reachable}
   exit_past_bell: |
     **{exit} falls after the bell.**
@@ -423,6 +412,8 @@ beats:
 opening:
   - intro
   - tutorial
+  - voice
+  - orientation
 
 sequences:
   intro:
@@ -571,6 +562,15 @@ sequences:
       text: |
         Right, right. Let me show you round the FOOMBERG terminal.
 
+  # The voice, on its own, because /help plays it again. Splitting it out is
+  # what stops the words existing twice: a second copy for /help would drift
+  # from this one the first time either was edited. It runs in its place in
+  # the opening because `opening` chains whatever it lists.
+  #
+  # Keep it free of choices and asks. /help can arrive mid-position, and a
+  # scene that stops to ask something would leave the player holding a
+  # question instead of a holding - copy-check refuses one.
+  voice:
     - speaker: Disembodied Voice
       text: |
         _A disembodied voice starts talking, Navinder doesn't stop explaining (maybe he can't hear it) but you can't hear him any more. It's weirdly present, and feels like some placeholder text in an unfinished world to you..._
@@ -617,6 +617,36 @@ sequences:
         - you must make a profit of €${budget * 7 / 2} to pass Probation
         - if you fail you can keep trying, but normally only the nepo-hires have funds for that
 
+  # --- the verdicts ---------------------------------------------------------
+  #
+  # The end of a probation week, as a scene rather than a line: characters can
+  # come over, say something, and be answered. They read the week's numbers -
+  # {total} {attempt} {failures} {again} {budget} {coherence} - and a choice may
+  # carry `coherence:` or `unlock:` exactly as a beat's does.
+  #
+  # Passing happens once, so it has one scene. Failing repeats, so the full
+  # scene plays on the first failure and `probation_failed_again` after that.
+  # Leave that one empty and the full scene plays again instead.
+  probation_passed:
+    - text: |
+        **Seven days. {total}.**
+
+        You are off probation. The desk is yours.
+
+  probation_failed:
+    - text: |
+        **Seven days. {total}.**
+
+        Not a profitable week, so not yet a desk. You start again on {budget}{#if again} — attempt {attempt}{/if}.
+
+        Your qubit is where you left it, at {coherence}. That much is yours.
+
+  # Shorter, for the second failure onward. Empty until it is written.
+  probation_failed_again: []
+
+  # Navinder again, once the voice has finished. Its own scene only because
+  # the voice between them is one - see the note above `voice`.
+  orientation:
     - art: oldhead
       speaker: Navinder
       text: |

@@ -17,6 +17,14 @@ const { realMs, GAME_DAY_SECONDS } = await import('./time.mjs')
 const { renderEmission, artPath, isAnimation, hasAudio, stickerOf, STICKER_SIDE } =
   await import('./render.mjs')
 
+// What the round panel opens with, read from copy rather than spelled out here.
+// Three assertions used to look for "Round", which is how they all broke at
+// once when that became "Investment Options". If a variable is ever put in this
+// line the match will stop working and say so, which is the failure worth
+// having.
+const ROUND_HEAD = String(section('scenes.round')).split('\n').find((l) => l.trim()).trim()
+const isRoundPanel = (t) => typeof t === 'string' && t.includes(ROUND_HEAD)
+
 /**
  * A session sitting at the world offer, past the opening scene.
  *
@@ -382,7 +390,7 @@ const ok = (name, cond, detail = '') => {
   }
   ok('answering plays the branch and carries on',
      !game.inSequence(S) && S.seqSeen.includes('intro'))
-  ok('then the game arrives', after.emissions.some((e) => /Round/.test(e.text || '')))
+  ok('then the game arrives', after.emissions.some((e) => isRoundPanel(e.text)))
   ok('and the brochure is not read to someone who was walked in',
      !after.emissions.some((e) => /premier neo-market/.test(e.text || '')))
 
@@ -396,7 +404,7 @@ const ok = (name, cond, detail = '') => {
   await game.boot(skipper)
   const skipped = await game.handle(skipper, 'skip')
   ok('skip ends the scene and starts the game',
-     !game.inSequence(skipper) && skipped.emissions.some((e) => /Round/.test(e.text || '')))
+     !game.inSequence(skipper) && skipped.emissions.some((e) => isRoundPanel(e.text)))
 
   // A declared-but-unwritten scene must be harmless: that is the state every
   // scene starts in. Injected rather than pointed at a real one, so this does
@@ -532,6 +540,112 @@ const ok = (name, cond, detail = '') => {
   ok('and it is not a setpiece', !again.beat)
 }
 
+// --- price is a picture, not a payout ---------------------------------------
+{
+  // The book still orders the holdings - more contracts is dearer - but the
+  // mapping is compressed, so a thirteenfold book is nowhere near a
+  // thirteenfold quote. Asserted as a relationship, not a number: the exponent
+  // is a tuning knob and MW_PRICE_GAMMA moves it.
+  const at = (book) => game.basePrice({ id: 'fixed', book: [book] }, 0)
+  ok('a bigger book is dearer', at(9) > at(1), `${at(1).toFixed(0)} -> ${at(9).toFixed(0)}`)
+  ok('the same book is the same price every time', at(4) === at(4))
+  ok('the quote is compressed against the book',
+     at(9) / at(1) < (1 + 9) / (1 + 1),
+     `${(at(9) / at(1)).toFixed(2)}x quote for a 5x book`)
+
+  // and none of it reaches the money. A position returns stake x (1 + return),
+  // and that return is a ratio of two quotes on the same base - so the base
+  // divides out and squashing it cannot move anyone's P/L.
+  const ratio = (base) => game.quote(base, 0.2) / game.quote(base, 0.6)
+  ok('a payout does not depend on what a holding costs',
+     Math.abs(ratio(90) - ratio(9000)) < 1e-12,
+     `${ratio(90)} vs ${ratio(9000)}`)
+}
+
+// --- a probation week ends as a scene ---------------------------------------
+{
+  const week = (S) => {
+    const said = []
+    for (let d = 0; d < 7; d++) said.push(...game.endOfDay(S))
+    return said
+  }
+  // The scenes are written here rather than read from copy. Whether a verdict
+  // has anyone in it is a writer's decision; what must hold is that the engine
+  // gives the scene the floor and takes it back afterwards.
+  const seqs = section('sequences')
+  const saved = { fail: seqs.probation_failed, again: seqs.probation_failed_again }
+  seqs.probation_failed = [{
+    speaker: 'Navinder', text: 'Seven days. {total}.',
+    choices: { a: { label: 'say nothing', reply: '_You say nothing._', coherence: -0.1 } },
+  }]
+  seqs.probation_failed_again = [{ text: 'Again. {failures} of them.' }]
+
+  const S = game.newSession(101)
+  S.seqSeen = list('opening'); S.rounds = 1; S.coherence = 0.9
+  const said = week(S)
+  ok('a failed week plays its scene', said.some((e) => /Seven days/.test(e.text || '')))
+  ok('and the scene has the floor', S.expect === 'sequence' && game.inSequence(S))
+  ok('so next week is not offered underneath it', !said.some((e) => isRoundPanel(e.text)))
+  ok('the scene can read the week it is about',
+     said.some((e) => /Seven days\. [+-]/.test(e.text || '')),
+     said.map((e) => e.text).join(' | ').slice(0, 80))
+
+  const answered = await game.handle(S, 'a')
+  ok('answering a verdict may cost coherence', Math.abs(S.coherence - 0.8) < 1e-9,
+     `0.900 -> ${S.coherence.toFixed(3)}`)
+  ok('and then the new week is offered',
+     answered.emissions.some((e) => isRoundPanel(e.text)))
+  ok('a failure keeps the desk on probation', S.probation === true)
+
+  S.week = []; S.history = []
+  ok('a repeat failure plays the shorter scene',
+     week(S).some((e) => /^Again\./m.test(e.text || '')))
+
+  // with nothing written for a repeat, the full scene plays again rather than
+  // nothing at all
+  seqs.probation_failed_again = []
+  const T = game.newSession(103)
+  T.seqSeen = list('opening'); T.rounds = 1; T.attempts = 4
+  ok('an unwritten repeat falls back to the full scene',
+     week(T).some((e) => /Seven days/.test(e.text || '')))
+
+  // and a profitable week ends probation for good
+  const P = game.newSession(102)
+  P.seqSeen = list('opening'); P.rounds = 1
+  P.week = [100, 100, 100, 100, 100, 100]
+  const won = game.endOfDay(P)
+  ok('a profitable week passes', P.probation === false)
+  ok('and the pass has its own scene', won.some((e) => /off probation/i.test(e.text || '')))
+
+  Object.assign(seqs, { probation_failed: saved.fail, probation_failed_again: saved.again })
+}
+
+// --- /help says the voice again ---------------------------------------------
+{
+  const nodes = section(`sequences.${game.HELP_SCENE}`) || []
+  ok('the help scene has something to say', nodes.length > 0)
+
+  const S = game.newSession(104)
+  S.seqSeen = list('opening'); S.rounds = 2
+  await game.boot(S)
+  const was = { expect: S.expect, seen: JSON.stringify(S.seqSeen) }
+  const helped = await game.handle(S, 'help')
+  // every line of the scene, plus the list of keys under it
+  ok('/help plays every line of it', helped.emissions.length === nodes.length + 1,
+     `${helped.emissions.length} messages for ${nodes.length} nodes`)
+  ok('/help does not enter the scene', !game.inSequence(S))
+  ok('/help leaves expect alone', S.expect === was.expect, `${was.expect} -> ${S.expect}`)
+  ok('/help does not mark the scene as seen', JSON.stringify(S.seqSeen) === was.seen)
+
+  // the point of narrating rather than playing: it is safe mid-position
+  S.expect = 'running'
+  S.run = { target: 0 }
+  const midway = await game.handle(S, 'help')
+  ok('/help mid-position leaves the position standing',
+     S.expect === 'running' && !game.inSequence(S) && S.run !== null)
+  ok('and still says it all', midway.emissions.length === nodes.length + 1)
+}
+
 // --- art travels as stickers -------------------------------------------------
 {
   // Every still in art/ has to survive the conversion, because the failure is
@@ -635,7 +749,7 @@ const ok = (name, cond, detail = '') => {
   S.dayStartedMs = Date.now() - realMs(GAME_DAY_SECONDS + 1)
   const out = game.step(S).emissions.filter((e) => e.kind === 'text').map((e) => e.text)
   const bell = out.findIndex((x) => /closes/.test(x))
-  const round = out.findIndex((x) => /^\*\*Round/m.test(x))
+  const round = out.findIndex(isRoundPanel)
   ok('the day closes before the next round is offered',
      bell >= 0 && round >= 0 && bell < round, `bell at ${bell}, round at ${round}`)
   ok('the new round reads the new budget',
