@@ -367,17 +367,17 @@ beats:
 
   change2:
     text: |
-      **Gerald stops at your desk.**
+      **Navinder stops at your desk.**
 
       You're a wizz on that machine, huh. How's it going newbie?"
     choices:
       a:
-        label: Ask him if he knows who switched your mouse
+        label: Who switched your mouse
         reply: |
           "Hahaha. Why would someone do that? I told you to make sure you invested at a distance, didn't I?"
         coherence: 0.04
       b:
-        label: Respond with similar platitudes
+        label: Offer similar platitudes
         reply: |
           Head's still in the game, huh? No bother, but do watch out for things starting to feel different.
   the_himbo:
@@ -457,7 +457,7 @@ sequences:
       text: |
         We're floors 11 and up, used to have quants in the basement, closer to the cables, but apparently latency’s not really an issue with neo-markets.
 
-        You'll be on 17, office 178, desk B. look for Gerald, they've set him up doing intros. Don't take it personal, that's just how he is.
+        You'll be on 17, office 178, desk B. look for Navinder, they've set him up doing intros. Don't take it personal, that's just how he is.
 
       choices:
         a:
@@ -505,22 +505,142 @@ sequences:
   tutorial: 
     - text: _[You step out at floor 17 and fail to orient yourself, only when you pass the lift for the 4th or 5th time do you spot the door to office 178.]_
 
-    - text: _[You push open the door and see Gerald stood staring out the window, he's the only other person in there]_
+    - text: _[You push open the door and see Navinder stood staring out the window, he's the only other person in there]_
       choices:
         a:
           label: "Say 'hi'"        
-          speaker: Gerald
+          speaker: Navinder
           reply: |
             ...
         b:
           label: "Look for desk B"
-          speaker: Gerald
+          speaker: Navinder
           reply: |
             ...
 
     - text: _[You sit down at desk B and boot the terminal. You scan your pass when prompted, input the second and third factor authentications from your phone and watch, and put your first three fingers in the scanner]_
 
     - art: oldhead
-      speaker: Gerald
+      speaker: Navinder
       text: |
-        Hey newbie. Start off watching the founder welcome or i’ll be in the shit
+        Hey newbie. Start off with the founder welcome or I’ll be in trouble.
+
+        _Your desktop spreads in front of you, there's only two icons_
+      choices:
+        a:
+          label: "hiya.mp4"
+          speaker: Navinder
+          reply: |
+            Keep your eyeballs forward, they track that shit.
+        b:
+          label: "Metrics_FINAL.mov"
+          speaker: Navinder
+          reply: |
+            Ah not that one! Come on now.
+
+            _Clicks 'hiya.mp4' for you, gestures at the webcam_
+
+            Try and appear focussed, at least, for the cameras.
+
+    - art: founders
+      speaker: Lara
+      text: |
+        Hi!
+
+    - speaker: Martin
+      text: Hey! Welcome to the team
+      choices:
+        a:
+          label: "wave"
+          speaker: Navinder
+          reply: |
+            ... it's prerecorded
+        b:
+          label: "do nothing"
+          speaker: Navinder
+          reply: |
+           That's right, keep the focus
+
+    - speaker: Lara + Martin
+      text: |
+        When we started Mackenzie Walk Capital we had nothing but a dream, a huge roster of investors enamoured with youth from our time at Jane Street and Goldman Sachs, and a willingness to Do What It Takes.
+        
+        We look forward to meeting you after your first week, in our scheduled, new starter 37 second catch up. Remember, Do What It Takes!
+
+    - art: oldhead
+      speaker: Navinder
+      text: |
+        Right, right. Let me show you round the FOOMBERG terminal.
+
+    - speaker: Disembodied Voice
+      text: |
+        _A disembodied voice starts talking, Navinder doesn't stop explaining (maybe he can't hear it) but you can't hear him any more. It's weirdly present, and feels like some placeholder text in an unfinished world to you..._
+
+        **The Markets**
+        Welcome to Mackenzie Walk Capital, a post AGI investment company focussed on Neo-markets. You'll need to make a significant profit in your first week to pass probation and impress the founders.
+        
+        Since AGI took off in late 2028 Neo-markets have become a significant focus of investment and it’s estimated that the number of these increasingly small markets (investing in the changes of atomic or subatomic systems) doubles every 3 days, and this rate of doubling has itself doubled in the last month. There are rumours, posts, unsubstantiated pieces of independent research, and even a few early Arxiv.org preprints that suggest that observing, modelling and investing in these systems is changing them, scare words like decoherence, collapse are beginning to float around the discourse.
+
+    - speaker: Disembodied Voice
+      text: |
+        **The Terminal**
+
+        On your desk is a FOOMBERG™ terminal, a self-improving, AGI-inside investment terminal specialising in neo-markets. MWC's unique approach is to pair the power of the terminal with the sense making capabilities of its user, following the go-getting early industrial model of canaries and coalminers.
+
+        The terminal will present you with three possible neo markets at any one time. These each have differing numbers of investment opportunities.
+
+        On entering the market the terminal gives you a readout of its structure followed by a graph of the current standing of all entities.
+
+        You can invest straight away, observe the market's progress, or leave and choose another from the three. You must invest, MWC doesn't appreciate timidity.
+
+     
+
+    - speaker: Disembodied Voice
+      text: |
+        **Investment**
+
+        When you invest you stake some of your day's funds on one of the entities, but you also couple your terminal with the entity. This is the only way to exploit neo-markets (and it's totally fine btw, no negative externalities).
+
+        This coupling can change the outcome of the market, and skilled traders can sense when and how to invest even if the entity doesn't look clasically profitable.
+
+        The coupling also changes the state of your terminal, causing it to lose coherence and necessitating some recovery time, particularly from bad trades. The company has an internal marketplace you can purchase upgrades to the recovery process from.
+
+    - speaker: Disembodied Voice
+      text: |
+        **Probation**
+
+        This first week is your probation week. You need to prove your worth before you get to keep a cut of the profits as your salary. 
+        
+        - Probation week is a 7 day working week 
+        - you receive a €${budget} baseline daily budget 
+        - if you end the day with a more than 10% profit your budget is increased by 10% the next day
+        - if not, it's reduced by 5%
+        - you must make a profit of €${budget * 7 / 2} to pass Probation
+        - if you fail you can keep trying, but normally only the nepo-hires have funds for that
+
+    - art: oldhead
+      speaker: Navinder
+      text: |
+       Got that?
+      choices:
+        a:
+          label: yes, thanks!
+          reply: |
+            _you think so, anyway... you spotted a `/help` option you can use later at least_
+        b:
+          label: ask for a repeat
+          reply: |
+            _You start to ask him to repeat but remember you spotted a `/help` option, you can just use that_
+
+    - speaker: Navinder
+      text: |
+        Alright, make good trades and try not to fundamentally alter the fabric of reality.
+      choices:
+        a:
+          label: seems normal
+          reply: |
+            _You smile and nod as your head turns back to the terminal. Time to make some money._
+        b:
+          label: ignore the implications
+          reply: |
+            _You smile and nod as your head turns back to the terminal. Time to make some money._
