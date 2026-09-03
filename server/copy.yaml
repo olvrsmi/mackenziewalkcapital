@@ -401,7 +401,7 @@ beats:
   again:
     - _Nobody looks up when you sit down._
     - _The terminal remembers your layout. Somebody's does, anyway._
-    - _Someone has left a coffee on 4B. It is not yours and it is not warm._
+    - _Someone has left a coffee on desk B. It is not yours and it is not warm._
 
 # ---------------------------------------------------------------------------
 # Sequences — scripted scenes, played a node at a time.
