@@ -41,7 +41,7 @@ import { basePrice, quote } from '../server/game.mjs'
 import { blurChart, DEFAULTS, blendNames, lumaOfHex } from '../server/blur.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
-const PORT = Number(process.env.PORT || 5060)
+const PORT = Number(process.env.PORT || 5081)
 
 if (!process.env.MW_MOTH_KEY && !process.env.MW_MOTH_KEY_FILE) {
   process.env.MW_MOTH_KEY_FILE = join(HERE, '..', '..', 'moth-api', 'KEY')
