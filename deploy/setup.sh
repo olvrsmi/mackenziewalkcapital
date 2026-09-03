@@ -139,14 +139,20 @@ MASK='s#(https?://)[^@/[:space:]]+@#\1***@#g'
 # Take them out of a clone's own config, saying which. Only --local: global and
 # system are already nulled above, and are not ours to rewrite.
 strip_repo_auth () {
-  local dir=$1
-  clean_git -C "$dir" config --local --list --name-only 2>/dev/null \
-    | grep -Ei "$GIT_AUTH_KEYS" \
-    | while read -r key; do
-        [ -n "$key" ] || continue
-        clean_git -C "$dir" config --local --unset-all "$key" 2>/dev/null || true
-        note "removed $(printf '%s' "$key" | sed -E "$MASK") from the clone's config"
-      done
+  local dir=$1 keys key
+  # Collected first, and `|| true`, because a clean clone matches nothing and
+  # grep says so with exit 1 - which under `set -o pipefail` is the pipeline's
+  # status and under `set -e` is the end of the deploy. The failure mode is a
+  # script that stops dead after printing "Code", on exactly the boxes where
+  # there is nothing wrong.
+  keys=$(clean_git -C "$dir" config --local --list --name-only 2>/dev/null \
+           | grep -Ei "$GIT_AUTH_KEYS" || true)
+  [ -n "$keys" ] || return 0
+  while read -r key; do
+    [ -n "$key" ] || continue
+    clean_git -C "$dir" config --local --unset-all "$key" 2>/dev/null || true
+    note "removed $(printf '%s' "$key" | sed -E "$MASK") from the clone's config"
+  done <<<"$keys"
 }
 
 # Whether this box can reach the repository with no clone in play. Run from a

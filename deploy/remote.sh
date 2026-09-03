@@ -92,14 +92,20 @@ MASK='s#(https?://)[^@/[:space:]]+@#\1***@#g'
 # Take them out of a clone's own config, saying which. Only --local: global and
 # system are already nulled above, and are not ours to rewrite.
 strip_repo_auth () {
-  local dir=$1
-  clean_git -C "$dir" config --local --list --name-only 2>/dev/null \
-    | grep -Ei "$GIT_AUTH_KEYS" \
-    | while read -r key; do
-        [ -n "$key" ] || continue
-        clean_git -C "$dir" config --local --unset-all "$key" 2>/dev/null || true
-        note "removed $(printf '%s' "$key" | sed -E "$MASK") from the clone's config"
-      done
+  local dir=$1 keys key
+  # Collected first, and `|| true`, because a clean clone matches nothing and
+  # grep says so with exit 1 - which under `set -o pipefail` is the pipeline's
+  # status and under `set -e` is the end of the deploy. The failure mode is a
+  # script that stops dead after printing "Code", on exactly the boxes where
+  # there is nothing wrong.
+  keys=$(clean_git -C "$dir" config --local --list --name-only 2>/dev/null \
+           | grep -Ei "$GIT_AUTH_KEYS" || true)
+  [ -n "$keys" ] || return 0
+  while read -r key; do
+    [ -n "$key" ] || continue
+    clean_git -C "$dir" config --local --unset-all "$key" 2>/dev/null || true
+    note "removed $(printf '%s' "$key" | sed -E "$MASK") from the clone's config"
+  done <<<"$keys"
 }
 
 # Whether this box can reach the repository with no clone in play. Run from a
@@ -159,8 +165,25 @@ if [ -n "$REF" ]; then
          git said: ${err:-nothing}
        $(fetch_diagnosis)"
   fi
-  clean_git -C "$APP" reset --quiet --hard "$REF" 2>/dev/null \
-    || clean_git -C "$APP" reset --quiet --hard "origin/$REF"
+  # Where the box is meant to end up. origin/<ref> first, the bare name second.
+  # The other order is why this box sat on its clone commit through every
+  # deploy: a fetch moves origin/main and never the local branch of the same
+  # name, so `reset --hard main` resets to the commit the box already had. It
+  # succeeds - which is the whole trouble, because the fallback never ran and
+  # the tree never moved, while the line below reported that stale commit as
+  # though it had just arrived. A tag or a bare sha has no origin/ form, which
+  # is the only reason the bare name is still tried at all.
+  want=''
+  for cand in "origin/$REF" "$REF"; do
+    if want=$(clean_git -C "$APP" rev-parse --verify --quiet "$cand^{commit}"); then break; fi
+    want=''
+  done
+  [ -n "$want" ] || die "the box cannot resolve $REF, even after fetching origin."
+  clean_git -C "$APP" reset --quiet --hard "$want"
+  # Say what the tree IS, having checked it is what was asked for, so a reset
+  # that moves nothing can never again be reported as a deploy that landed.
+  have=$(git -C "$APP" rev-parse HEAD)
+  [ "$have" = "$want" ] || die "asked for $want but the tree is at $have."
   note "$(git -C "$APP" log --oneline -1)"
 fi
 

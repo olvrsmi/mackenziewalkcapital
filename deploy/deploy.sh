@@ -98,8 +98,14 @@ if git rev-parse --verify --quiet "$REF" >/dev/null; then
     fi
   fi
   note "$REF is $(git log --oneline -1 "$REF")"
+  # Send the commit, not the name. A name has to be resolved again on the box,
+  # against a clone whose branches are its own; a sha means one thing there and
+  # here, and this one has just been checked against origin - so the box cannot
+  # land anywhere except the commit named above.
+  SEND=$local_sha
 else
   note "$REF is not a local ref - trusting the box to find it"
+  SEND=$REF
 fi
 
 # the engine source has to exist here before anything is touched on the box
@@ -144,5 +150,5 @@ fi
 
 # --- the rest happens on the box ---------------------------------------------
 say "On $HOST"
-"${SSH[@]}" "$HOST" "MW_ROOT=$ROOT_DIR MW_REPO='$REPO' MW_REF='$REF' MW_DEPS=$DEPS MW_RESTART=1 bash -s" \
+"${SSH[@]}" "$HOST" "MW_ROOT=$ROOT_DIR MW_REPO='$REPO' MW_REF='$SEND' MW_DEPS=$DEPS MW_RESTART=1 bash -s" \
   < deploy/remote.sh
