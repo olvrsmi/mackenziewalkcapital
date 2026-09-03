@@ -1,0 +1,201 @@
+{
+ "spec_n2_01@10": {
+  "inert_qubits": [],
+  "per_qubit_range": [
+   0.7277,
+   1.3129
+  ],
+  "volatility": 1.0203
+ },
+ "spec_n2_02@10": {
+  "inert_qubits": [],
+  "per_qubit_range": [
+   0.3841,
+   0.9442
+  ],
+  "volatility": 0.6642
+ },
+ "spec_n2_03@10": {
+  "inert_qubits": [],
+  "per_qubit_range": [
+   0.1324,
+   0.7666
+  ],
+  "volatility": 0.4495
+ },
+ "spec_n3_01@10": {
+  "inert_qubits": [],
+  "per_qubit_range": [
+   1.2737,
+   0.3974,
+   0.3729
+  ],
+  "volatility": 0.6813
+ },
+ "spec_n3_02@10": {
+  "inert_qubits": [],
+  "per_qubit_range": [
+   0.7791,
+   0.5476,
+   1.3577
+  ],
+  "volatility": 0.8948
+ },
+ "spec_n3_03@10": {
+  "inert_qubits": [],
+  "per_qubit_range": [
+   0.4358,
+   0.4807,
+   0.95
+  ],
+  "volatility": 0.6222
+ },
+ "spec_n3_04@10": {
+  "inert_qubits": [],
+  "per_qubit_range": [
+   1.6486,
+   0.6117,
+   1.008
+  ],
+  "volatility": 1.0894
+ },
+ "spec_n3_05@10": {
+  "inert_qubits": [],
+  "per_qubit_range": [
+   0.8485,
+   0.0972,
+   0.5769
+  ],
+  "volatility": 0.5075
+ },
+ "spec_n4_01@10": {
+  "inert_qubits": [],
+  "per_qubit_range": [
+   0.9558,
+   0.7622,
+   0.5282,
+   1.1593
+  ],
+  "volatility": 0.8513
+ },
+ "spec_n4_02@10": {
+  "inert_qubits": [],
+  "per_qubit_range": [
+   0.5041,
+   0.8911,
+   1.5739,
+   0.8891
+  ],
+  "volatility": 0.9645
+ },
+ "spec_n4_03@10": {
+  "inert_qubits": [],
+  "per_qubit_range": [
+   0.6942,
+   0.7296,
+   0.8657,
+   1.2107
+  ],
+  "volatility": 0.875
+ },
+ "spec_n4_04@10": {
+  "inert_qubits": [],
+  "per_qubit_range": [
+   1.0698,
+   0.942,
+   0.3809,
+   0.7995
+  ],
+  "volatility": 0.798
+ },
+ "spec_n4_05@10": {
+  "inert_qubits": [],
+  "per_qubit_range": [
+   1.7504,
+   0.9913,
+   0.8231,
+   0.4992
+  ],
+  "volatility": 1.016
+ },
+ "spec_n4_06@10": {
+  "inert_qubits": [],
+  "per_qubit_range": [
+   0.2542,
+   0.3338,
+   0.2357,
+   0.9655
+  ],
+  "volatility": 0.4473
+ },
+ "spec_n5_01@10": {
+  "inert_qubits": [],
+  "per_qubit_range": [
+   0.3367,
+   0.5213,
+   1.0001,
+   0.4335,
+   0.5985
+  ],
+  "volatility": 0.578
+ },
+ "spec_n5_02@10": {
+  "inert_qubits": [],
+  "per_qubit_range": [
+   0.5966,
+   0.5713,
+   0.5141,
+   1.3372,
+   0.898
+  ],
+  "volatility": 0.7834
+ },
+ "spec_n5_03@10": {
+  "inert_qubits": [],
+  "per_qubit_range": [
+   1.0873,
+   0.8058,
+   0.7563,
+   0.932,
+   0.8847
+  ],
+  "volatility": 0.8932
+ },
+ "spec_n6_01@10": {
+  "inert_qubits": [],
+  "per_qubit_range": [
+   0.7164,
+   0.7458,
+   0.7003,
+   0.6092,
+   0.5637,
+   0.6465
+  ],
+  "volatility": 0.6637
+ },
+ "spec_n6_02@10": {
+  "inert_qubits": [],
+  "per_qubit_range": [
+   1.0482,
+   0.7464,
+   0.9953,
+   0.5353,
+   0.8747,
+   1.0237
+  ],
+  "volatility": 0.8706
+ },
+ "spec_n7_01@10": {
+  "inert_qubits": [],
+  "per_qubit_range": [
+   0.9874,
+   1.3931,
+   0.3945,
+   0.7913,
+   0.9668,
+   0.7479,
+   0.8751
+  ],
+  "volatility": 0.8794
+ }
+}
