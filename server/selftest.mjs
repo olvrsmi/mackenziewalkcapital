@@ -418,32 +418,98 @@ const ok = (name, cond, detail = '') => {
 {
   ok('a new desk is on probation', game.newSession(77).probation === true)
 
-  // Day one rides boot - but boot returns early for the opening scene, so the
-  // beat lands on the boot that happens once the scene is done. Which is the
-  // right order: the himbo walks you to the desk before Harold is mentioned.
+  // Read from the schedule, never named. The version of this block that named
+  // `arrival` and `the_oldhead` went red the moment the schedule was rewritten
+  // around change1 and the_himbo - the same way the one that named `tutorial`
+  // did, and for the same reason. Which day carries which setpiece is a
+  // writer's decision; that a scheduled day fires exactly once, and that a
+  // setpiece with choices waits, is the engine's.
+  const schedule = section('beats.schedule') || {}
+  const days = Object.keys(schedule).map(Number).sort((a, b) => a - b)
+  const onDay = (n) => { const S = game.newSession(77); S.week = Array.from({ length: n - 1 }, (_, i) => i); return S }
+  ok('the week has setpieces scheduled in it', days.length > 0, JSON.stringify(schedule))
+
+  // Day one rides boot - but boot returns early for the opening scene, so a
+  // day-one beat lands on the boot that happens once the scene is done. Asserted
+  // only when day one carries one: an opening with nothing on it is a valid
+  // schedule, and this used to fail simply for being written that way.
   const S = await playable(77)
-  ok('the day-one setpiece fires once the opening scene is done',
-     S.beatsSeen.includes('arrival'), JSON.stringify(S.beatsSeen))
-  ok('and only once', game.beatDue(S) === null)
+  if (schedule['1']) {
+    ok('a day-one setpiece fires once the opening scene is done',
+       S.beatsSeen.includes(schedule['1']), JSON.stringify(S.beatsSeen))
+    ok('and only once', game.beatDue(S) === null)
+  } else {
+    ok('an opening day with nothing scheduled fires nothing',
+       S.beatsSeen.length === 0, JSON.stringify(S.beatsSeen))
+  }
 
-  // a setpiece with choices leaves itself pending
-  S.week = [1, 2]
-  const fired = game.fireBeat(S)
+  // every scheduled day fires its own setpiece, once
+  for (const day of days) {
+    const D = onDay(day)
+    const out = game.fireBeat(D)
+    ok(`day ${day} fires ${schedule[String(day)]}`,
+       out.length === 1 && D.beatsSeen.includes(schedule[String(day)]),
+       JSON.stringify(D.beatsSeen))
+    ok(`and day ${day} does not fire it twice`, game.beatDue(D) === null)
+  }
+
+  // a setpiece with choices leaves itself pending. Whichever day happens to
+  // carry one - there has to be one somewhere, or nothing is ever asked.
+  // choices are a mapping of token -> {label, ...}, which is also where the
+  // reply letters come from - so nothing here guesses at 'a'.
+  const choicesOf = (id) => Object.entries(section(`beats.${id}.choices`) || {})
+  const choiceDay = days.find((d) => choicesOf(schedule[String(d)]).length > 0)
+  ok('some setpiece in the week asks something', choiceDay !== undefined)
+  const withChoices = onDay(choiceDay)
+  const fired = game.fireBeat(withChoices)
   ok('a scheduled setpiece fires on its day', fired.length === 1)
-  ok('one with choices waits for an answer', S.beat === 'the_oldhead', String(S.beat))
-  ok('and offers them', game.beatChoices(S).length === 2)
+  ok('one with choices waits for an answer',
+     withChoices.beat === schedule[String(choiceDay)], String(withChoices.beat))
+  ok('and offers them', game.beatChoices(withChoices).length ===
+     choicesOf(schedule[String(choiceDay)]).length)
+  Object.assign(S, { week: withChoices.week, beat: withChoices.beat,
+                     beatsSeen: withChoices.beatsSeen })
 
-  // effects apply, clamped
+  // effects apply, clamped. Which letter carries the coherence, and its sign,
+  // are the writer's - so the assertion is that the number moves the way the
+  // copy says, not that it goes up.
+  const written = choicesOf(schedule[String(choiceDay)])
   S.coherence = 0.4
-  const before = S.coherence
-  await game.handle(S, 'a')
-  ok('a choice may spend or restore coherence', S.coherence > before,
-     `${before} -> ${S.coherence}`)
+  await game.handle(S, written[0][0])
   ok('answering clears the beat', S.beat === null)
 
+  // Effects are tested against a beat written here, not against whatever the
+  // schedule happens to hold. Whether a choice spends coherence is a writer's
+  // decision - today none of them do - and asserting that one does is the same
+  // mistake as naming `arrival` was. What must hold is that when a choice
+  // carries an effect the engine applies it, and clamps it at both ends.
+  section('beats')._selftest_choice = {
+    text: 'a test beat',
+    choices: {
+      a: { label: 'take some back', coherence: 0.2 },
+      b: { label: 'spend far more than there is', coherence: -0.9 },
+      c: { label: 'nothing at all' },
+    },
+  }
+  const fx = async (token, from) => {
+    const T = game.newSession(79)
+    T.coherence = from
+    T.beat = '_selftest_choice'
+    await game.handle(T, token)
+    return T
+  }
+  ok('a choice restores coherence', Math.abs((await fx('a', 0.4)).coherence - 0.6) < 1e-9)
+  ok('a choice spends it', Math.abs((await fx('b', 0.95)).coherence - 0.05) < 1e-9)
+  ok('and cannot spend past nothing', (await fx('b', 0.5)).coherence === 0)
+  ok('nor restore past whole', (await fx('a', 0.95)).coherence === 1)
+  ok('a choice with no effect leaves it alone', (await fx('c', 0.4)).coherence === 0.4)
+  ok('every choice clears the beat', (await fx('c', 0.4)).beat === null)
+  delete section('beats')._selftest_choice
+
   // a command that is not one of its choices must reach the game
-  S.week = [1, 2, 3, 4, 5]
-  game.fireBeat(S)
+  const another = onDay(choiceDay)
+  game.fireBeat(another)
+  Object.assign(S, { week: another.week, beat: another.beat, beatsSeen: another.beatsSeen })
   const pending = S.beat
   ok('a beat is pending', pending !== null)
   await game.handle(S, 'state')
@@ -459,7 +525,7 @@ const ok = (name, cond, detail = '') => {
   // a second attempt has spent its setpieces, so something else has to speak
   const again = game.newSession(78)
   again.attempts = 2
-  again.beatsSeen = ['arrival', 'the_oldhead', 'the_himbo']
+  again.beatsSeen = days.map((d) => schedule[String(d)])
   const line = game.fireBeat(again)
   ok('a repeat attempt still hears something', line.length === 1 && line[0].text)
   ok('and it is not a setpiece', !again.beat)
